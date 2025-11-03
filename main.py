@@ -11,7 +11,8 @@ interval = int(os.getenv(SCHEDULER_INTERVAL_SECONDS, "60"))
 def task_example() -> None:
     """Example scheduled task."""
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Running scheduled placeholder task.")
-    snapshot = GetMarketSnapshot('ETH','1h')
+    #TODO move the below to task list
+    snapshot = GetMarketSnapshot('ETH','1h',1,"https://api.hyperliquid-testnet.xyz/info")
     print(snapshot)
 
 
