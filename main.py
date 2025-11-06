@@ -5,14 +5,15 @@ from dotenv import load_dotenv
 from src.market_data import GetMarketSnapshot
 
 load_dotenv()
-SCHEDULER_INTERVAL_SECONDS = "SCHEDULER_INTERVAL_SECONDS"
-interval = int(os.getenv(SCHEDULER_INTERVAL_SECONDS, "60"))
+interval = int(os.getenv("SCHEDULER_INTERVAL_SECONDS", "60"))
+coin = str(os.getenv("COIN"))
+hyperliquid_url = str(os.getenv("HYPERLIQUID_URL"))
 
 def task_example() -> None:
     """Example scheduled task."""
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Running scheduled placeholder task.")
     #TODO move the below to task list
-    snapshot = GetMarketSnapshot('ETH','1h',1,"https://api.hyperliquid-testnet.xyz/info")
+    snapshot = GetMarketSnapshot(coin,'1h',hyperliquid_url,1)
     print(snapshot)
 
 

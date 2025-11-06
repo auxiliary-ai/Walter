@@ -14,7 +14,7 @@ def _post(
 
 
 def GetMarketSnapshot(
-     coin : str , interval:str , history_hours=1, base_url="https://api.hyperliquid-testnet.xyz/info"
+     coin : str , interval:str , base_url, history_hours=1 
 ) -> Dict[str, Any]:
     """
     Collect a quick market overview for the requested coin.
