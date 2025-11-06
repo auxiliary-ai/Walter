@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Any, Dict, List
 
+
 def _post(
     base_url: str, payload: Dict[str, Any]
 ) -> Dict[str, Any] | List[Dict[str, Any]]:
@@ -14,7 +15,7 @@ def _post(
 
 
 def GetMarketSnapshot(
-     coin : str , interval:str , base_url, history_hours=1 
+    coin: str, interval: str, base_url, history_hours=1
 ) -> Dict[str, Any]:
     """
     Collect a quick market overview for the requested coin.
@@ -106,25 +107,27 @@ def GetMarketSnapshot(
     buy_count = 0
     sell_count = 0
     for trade in trades:
-        size = float(trade['sz'])
-        
-        if trade['side'] == 'B':  # Buy (taker bought)
+        size = float(trade["sz"])
+
+        if trade["side"] == "B":  # Buy (taker bought)
             buy_volume += size
             buy_count += 1
         else:  # Sell (taker sold)
             sell_volume += size
             sell_count += 1
-    
+
     total_volume = buy_volume + sell_volume
-    
-    buy_pressure= (buy_volume / total_volume * 100) if total_volume > 0 else 0
-    sell_pressure= (sell_volume / total_volume * 100) if total_volume > 0 else 0
-    buy_volume= buy_volume
-    sell_volume= sell_volume
-    buy_count= buy_count
-    sell_count= sell_count
-    net_volume= buy_volume - sell_volume
-    volume_delta= ((buy_volume - sell_volume) / total_volume * 100) if total_volume > 0 else 0
+
+    buy_pressure = (buy_volume / total_volume * 100) if total_volume > 0 else 0
+    sell_pressure = (sell_volume / total_volume * 100) if total_volume > 0 else 0
+    buy_volume = buy_volume
+    sell_volume = sell_volume
+    buy_count = buy_count
+    sell_count = sell_count
+    net_volume = buy_volume - sell_volume
+    volume_delta = (
+        ((buy_volume - sell_volume) / total_volume * 100) if total_volume > 0 else 0
+    )
 
     # ------------------------------------------------
     # 6. Build final snapshot
@@ -139,8 +142,8 @@ def GetMarketSnapshot(
         "volatility_24h": round(volatility, 6),
         "volume_24h": round(vol24h, 3),
         "open_interest": openInterest,
-        "buy_pressure":buy_pressure,
-        "net_volume":net_volume
+        "buy_pressure": buy_pressure,
+        "net_volume": net_volume,
     }
- # TODO: metric below may be added to reponse as per ML engineer request
+    # TODO: metric below may be added to reponse as per ML engineer request
     return snapshot

@@ -10,3 +10,6 @@ __pycache__
 
 #Jupyter checkpoint
 .ipynb_checkpoints
+
+#VS Code files
+.vscode
