@@ -25,7 +25,7 @@ class LLMAPI:
         self,
         *,
         api_key: str | None = None,
-        model: str = "gemini-1.5-flash",
+        model: str = "gemini-flash-latest",
         buy_tokens: Iterable[str] | None = None,
         sell_tokens: Iterable[str] | None = None,
         confidence_threshold: float = 0.55,
