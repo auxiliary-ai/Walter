@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "walter"
+version = "0.1.0"
+description = "Trading automation toolkit powered by llm-based decisioning."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Walter Contributors" }]
+requires-python = ">=3.10"
+dependencies = [
+    "hyperliquid-python-sdk==0.20.1",
+    "eth-account==0.13.7",
+    "python-dotenv==1.2.1",
+    "numpy==2.3.4",
+    "requests==2.32.5",
+    "pandas==2.3.3",
+    "google-genai>=0.3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["walter"]

@@ -13,3 +13,9 @@ __pycache__
 
 #VS Code files
 .vscode
+
+#Env files
+.env.local
+
+#Egg info
+*.egg-info/
