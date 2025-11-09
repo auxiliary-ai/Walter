@@ -1,5 +1,9 @@
 # Walter
 
+<p align="center">
+  <img src="walter_logo.svg" alt="Walter logo" width="220">
+</p>
+
 Walter is an automated trading assistant that pulls real-time market context from Hyperliquid, asks a Gemini-powered LLM to decide whether to buy, sell, or hold, and optionally routes market orders when the model is confident enough. It is designed for fast strategy prototyping, not unattended production trading.
 
 ## Features
