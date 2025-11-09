@@ -47,6 +47,8 @@ class LLMAPI:
 
     def get_prompt(self, market_snapshot: Any, open_positions: Any) -> str:
         """Builds a concise instruction prompt for the LLM."""
+        # TODO: we can enhance this prompt with more context or examples later
+        # TODO: we can add memory of past decisions and outcomes
 
         return (
             "You are a trading assistant. Given the following market snapshot and "
