@@ -1,6 +1,7 @@
-hyperliquid-python-sdk 
-eth-account
-python-dotenv
-numpy
-requests
-pandas
+hyperliquid-python-sdk==0.20.1
+eth-account==0.13.7
+python-dotenv==1.2.1
+numpy==2.3.4
+requests==2.32.5
+pandas==2.3.3
+google-genai>=0.3.0
