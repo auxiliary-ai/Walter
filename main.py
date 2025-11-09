@@ -25,7 +25,7 @@ def main() -> None:
     print(f"Scheduler running every {interval} seconds.")
     try:
         while True:
-            snapshot = GetMarketSnapshot(coin, "1h", hyperliquid_url, 1)
+            snapshot = GetMarketSnapshot(coin, "1h", hyperliquid_url, 6)
             print(snapshot)
             response = GetOpenPositionDetails(hyperliquid_url, general_public_key)
             print(response)
