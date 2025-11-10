@@ -4,6 +4,14 @@
   <img src="walter_logo.svg" alt="Walter logo" width="220">
 </p>
 
+<p align="center">
+    <img src="https://img.shields.io/badge/Status-Prototype-orange" alt="Status: Prototype" />
+    <img src="https://img.shields.io/badge/Version-0.1.0-blue" alt="Version: 0.1.0" />
+    <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python: 3.10+" />
+    <img src="https://img.shields.io/badge/License-MIT-green" alt="License: MIT" />
+</p>
+
+
 Walter is an automated trading assistant that pulls real-time market context from Hyperliquid, asks a Gemini-powered LLM to decide whether to buy, sell, or hold, and optionally routes market orders when the model is confident enough. It is designed for fast strategy prototyping, not unattended production trading.
 
 ## Features
