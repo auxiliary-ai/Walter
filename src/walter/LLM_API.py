@@ -16,6 +16,9 @@ class LLMDecision:
     confidence: float
     execute: bool
     raw_response: str
+    size: float | None
+    leverage: int | None
+    tif: str | None
 
 
 class LLMAPI:
@@ -53,10 +56,11 @@ class LLMAPI:
         return (
             "You are a trading assistant. Given the following market snapshot and "
             "open positions, respond with BUY, SELL, or HOLD plus an optional "
-            "confidence value between 0 and 1.\n"
+            "confidence value between 0 and 1. Include desired position size "
+            "(in contracts), leverage (integer), and TIF (time-in-force) code.\n"
             f"Market Snapshot: {market_snapshot}\n"
             f"Open Positions: {open_positions}\n"
-            "Answer in the format: ACTION (confidence=0.0)."
+            "Answer in the format: ACTION (confidence=0.0, size=1.0, leverage=1, tif=Ioc)."
         )
 
     def decide(self, response: Any) -> LLMDecision:
@@ -65,12 +69,19 @@ class LLMAPI:
         response_text = self._normalize_response(response)
         action = self._infer_action(response_text)
         confidence = self._extract_confidence(response_text, action)
+        size = self._extract_numeric_value(response_text, "size")
+        leverage_value = self._extract_numeric_value(response_text, "leverage")
+        leverage = int(leverage_value) if leverage_value is not None else None
+        tif = self._extract_tif(response_text)
         execute = action != "hold" and confidence >= self.confidence_threshold
         return LLMDecision(
             action=action,
             confidence=confidence,
             execute=execute,
             raw_response=response_text,
+            size=size,
+            leverage=leverage,
+            tif=tif,
         )
 
     def decide_from_market(
@@ -110,6 +121,24 @@ class LLMAPI:
             percentage = float(match.group(1))
             return min(1.0, max(0.0, percentage / 100))
         return 1.0 if action != "hold" else 0.0
+
+    def _extract_numeric_value(self, response_text: str, key: str) -> float | None:
+        pattern = rf"{re.escape(key)}\s*=\s*(-?\d+(?:\.\d+)?)"
+        match = re.search(pattern, response_text, flags=re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return float(match.group(1))
+        except (TypeError, ValueError):
+            return None
+
+    def _extract_tif(self, response_text: str) -> str | None:
+        match = re.search(r"tif\s*=\s*([A-Za-z]+)", response_text, flags=re.IGNORECASE)
+        if match:
+            value = match.group(1).strip()
+            if value:
+                return value[0].upper() + value[1:].lower()
+        return None
 
     def _call_gemini(self, prompt: str) -> str:
         """Executes a fast Gemini API call and returns the combined text output."""
