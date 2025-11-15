@@ -15,9 +15,6 @@ coin = str(os.getenv("COIN"))
 hyperliquid_url = str(os.getenv("HYPERLIQUID_URL"))
 general_public_key = str(os.getenv("GENERAL_PUBLIC_KEY"))
 api_wallet_private_key = str(os.getenv("API_WALLET_PRIVATE_KEY"))
-default_size = float(os.getenv("ORDER_SIZE", "0.5"))
-default_leverage = float(os.getenv("ORDER_LEVERAGE", "1"))
-default_tif = str(os.getenv("ORDER_TIF", "Ioc"))
 gemini_key = os.getenv("GEMINI_API_KEY")
 llm_api = LLMAPI(api_key=gemini_key)
 
@@ -43,9 +40,9 @@ def main() -> None:
                 api_wallet_private_key,
                 decision.action == "buy",
                 coin,
-                default_size,
-                default_leverage,
-                default_tif,
+                decision.size,
+                decision.leverage,
+                decision.tif,
             )
             time.sleep(interval)
     except KeyboardInterrupt:
