@@ -2,10 +2,27 @@ from __future__ import annotations
 
 import os
 import re
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Iterable
 
 from google import genai
+
+
+@dataclass(frozen=True)
+class MemoryEntry:
+    """Stores a past interaction for context."""
+    market_snapshot: Any
+    open_positions: Any
+    decision: LLMDecision
+
+
+@dataclass(frozen=True)
+class MemoryEntry:
+    """Stores a past interaction for context."""
+    market_snapshot: Any
+    open_positions: Any
+    decision: LLMDecision
 
 
 @dataclass(frozen=True)
@@ -37,7 +54,12 @@ class LLMAPI:
             token.lower() for token in (sell_tokens or ("sell", "short"))
         )
         self.confidence_threshold = confidence_threshold
-        key = api_key or os.getenv("GEMINI_API_KEY")
+        self.request_timeout = request_timeout
+        self.temperature = temperature
+        self.history: deque[MemoryEntry] = deque(maxlen=10)
+        
+        # Get API key from parameter or environment
+        key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not key:
             raise ValueError(
                 "Gemini API key missing. Provide api_key or set GEMINI_API_KEY."
@@ -47,16 +69,27 @@ class LLMAPI:
 
     def get_prompt(self, market_snapshot: Any, open_positions: Any) -> str:
         """Builds a concise instruction prompt for the LLM."""
-        # TODO: we can enhance this prompt with more context or examples later
-        # TODO: we can add memory of past decisions and outcomes
+        
+        history_text = ""
+        if self.history:
+            history_text = "History of recent decisions (newest last):\n"
+            for i, entry in enumerate(self.history, 1):
+                history_text += (
+                    f"[{i}] Market: {entry.market_snapshot} | "
+                    f"Positions: {entry.open_positions} -> "
+                    f"Decision: {entry.decision.action} (conf={entry.decision.confidence})\n"
+                )
+            history_text += "\n"
 
         return (
             "You are a trading assistant. Given the following market snapshot and "
             "open positions, respond with BUY, SELL, or HOLD plus an optional "
-            "confidence value between 0 and 1.\n"
-            f"Market Snapshot: {market_snapshot}\n"
-            f"Open Positions: {open_positions}\n"
-            "Answer in the format: ACTION (confidence=0.0)."
+            "confidence value between 0 and 1. Include desired position size "
+            "(in contracts), leverage (integer), and TIF (time-in-force) code.\n\n"
+            f"{history_text}"
+            f"Current Market Snapshot: {market_snapshot}\n"
+            f"Current Open Positions: {open_positions}\n"
+            "Answer in the format: ACTION (confidence=0.0, size=1.0, leverage=1, tif=Ioc)."
         )
 
     def decide(self, response: Any) -> LLMDecision:
@@ -79,8 +112,17 @@ class LLMAPI:
         """Calls Gemini with generated prompt and parses the response."""
 
         prompt = self.get_prompt(market_snapshot, open_positions)
-        response = self._call_gemini(prompt)
-        return self.decide(response)
+        response = self._call_openrouter(prompt)
+        decision = self.decide(response)
+        
+        self.history.append(
+            MemoryEntry(
+                market_snapshot=market_snapshot,
+                open_positions=open_positions,
+                decision=decision
+            )
+        )
+        return decision
 
     def _normalize_response(self, response: Any) -> str:
         if isinstance(response, str):
