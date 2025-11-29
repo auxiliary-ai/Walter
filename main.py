@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 from walter.market_data import GetMarketSnapshot
 from walter.hyperliquid_API import GetOpenPositionDetails, PlaceOrder
 from walter.LLM_API import LLMAPI
-
+from walter.db_utils import ensure_schema, save_snapshot, save_order_attempt
+from datetime import datetime, timezone
 
 for dotenv_file in (".env.local", ".env"):
     load_dotenv(dotenv_path=dotenv_file, override=False)
@@ -18,6 +19,8 @@ api_wallet_private_key = str(os.getenv("API_WALLET_PRIVATE_KEY"))
 llm_model = os.getenv("LLM_MODEL")
 openrouter_key = os.getenv("OPENROUTER_API_KEY")
 llm_api = LLMAPI(api_key=openrouter_key, model=llm_model or "gemini-flash")
+ensure_schema()
+
 
 def main() -> None:
     print(f"Scheduler running every {interval} seconds.")
@@ -33,10 +36,32 @@ def main() -> None:
                 print(
                     f"LLM decision '{decision.action}' below confidence threshold. Skipping order."
                 )
+                current_time = datetime.now(timezone.utc)
+                snapshot_id = save_snapshot(snapshot, captured_at=current_time)
+                save_order_attempt(
+                    created_at=current_time,
+                    coin=coin,
+                    is_buy=False,
+                    size=None,
+                    leverage=None,
+                    tif=None,
+                    decision_action="hold",
+                    decision_confidence=decision.confidence,
+                    snapshot_id=snapshot_id,
+                    order_payload=None,
+                    order_placed=None,
+                )
                 time.sleep(interval)
                 continue
+            order_args = {
+                "is_buy": decision.action == "buy",
+                "coin": coin,
+                "size": decision.size,
+                "leverage": decision.leverage,
+                "tif": decision.tif or "Ioc",
+            }
 
-            PlaceOrder(
+            order_placed = PlaceOrder(
                 hyperliquid_url,
                 api_wallet_private_key,
                 decision.action == "buy",
@@ -45,6 +70,22 @@ def main() -> None:
                 decision.leverage,
                 decision.tif,
             )
+            if order_placed:
+                current_time = datetime.now(timezone.utc)
+                snapshot_id = save_snapshot(snapshot, captured_at=current_time)
+                save_order_attempt(
+                    created_at=current_time,
+                    coin=coin,
+                    is_buy=order_args["is_buy"],
+                    size=order_args["size"],
+                    leverage=order_args["leverage"],
+                    tif=order_args["tif"],
+                    decision_action=decision.action,
+                    decision_confidence=decision.confidence,
+                    snapshot_id=snapshot_id,
+                    order_payload=order_args,
+                    order_placed=order_placed,
+                )
             time.sleep(interval)
     except KeyboardInterrupt:
         print("\nScheduler stopped.")

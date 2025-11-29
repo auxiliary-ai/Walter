@@ -151,6 +151,7 @@ def PlaceOrder(base_url, api_wallet_private_key, is_buy, coin, size, leverage, t
         print(lev)
         print("✅ Order placed successfully!")
         print(result)
-
+        return True
     except Exception as e:
         print(f"❌ Error placing order: {e}")
+        return False
