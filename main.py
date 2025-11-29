@@ -15,8 +15,9 @@ coin = str(os.getenv("COIN"))
 hyperliquid_url = str(os.getenv("HYPERLIQUID_URL"))
 general_public_key = str(os.getenv("GENERAL_PUBLIC_KEY"))
 api_wallet_private_key = str(os.getenv("API_WALLET_PRIVATE_KEY"))
-gemini_key = os.getenv("GEMINI_API_KEY")
-llm_api = LLMAPI(api_key=gemini_key)
+llm_model = os.getenv("LLM_MODEL")
+openrouter_key = os.getenv("OPENROUTER_API_KEY")
+llm_api = LLMAPI(api_key=openrouter_key, model=llm_model or "gemini-flash")
 
 def main() -> None:
     print(f"Scheduler running every {interval} seconds.")

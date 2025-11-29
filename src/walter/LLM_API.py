@@ -5,7 +5,37 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from google import genai
+import requests
+
+
+# Popular free models on OpenRouter
+POPULAR_MODELS = {
+    # Google (Free)
+    "gemini-flash": "google/gemini-2.0-flash-exp:free",
+    "gemini-pro": "google/gemini-exp-1206:free",
+    "gemma-2-9b": "google/gemma-2-9b-it:free",
+    
+    # DeepSeek (Free)
+    "deepseek-r1": "deepseek/deepseek-r1:free",
+    "deepseek-v3": "deepseek/deepseek-v3:free",
+    
+    # Meta Llama (Free)
+    "llama-3.2-3b": "meta-llama/llama-3.2-3b-instruct:free",
+    "llama-3.2-1b": "meta-llama/llama-3.2-1b-instruct:free",
+    "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct:free",
+    "llama-3.1-70b": "meta-llama/llama-3.1-70b-instruct:free",
+    
+    # Qwen (Free)
+    "qwen-2.5-coder-32b": "qwen/qwen-2.5-coder-32b-instruct:free",
+    "qwen-2.5-7b": "qwen/qwen-2.5-7b-instruct:free",
+    
+    # Mistral (Free)
+    "mistral-7b": "mistralai/mistral-7b-instruct:free",
+    
+    # Microsoft (Free)
+    "phi-3-mini": "microsoft/phi-3-mini-128k-instruct:free",
+    "phi-3-medium": "microsoft/phi-3-medium-128k-instruct:free",
+}
 
 
 @dataclass(frozen=True)
@@ -22,17 +52,32 @@ class LLMDecision:
 
 
 class LLMAPI:
-    """Utility class for creating prompts and parsing LLM responses."""
+    """Utility class for creating prompts and parsing LLM responses via OpenRouter."""
 
     def __init__(
         self,
         *,
         api_key: str | None = None,
-        model: str = "gemini-flash-latest",
+        model: str = "gemini-flash",
         buy_tokens: Iterable[str] | None = None,
         sell_tokens: Iterable[str] | None = None,
         confidence_threshold: float = 0.55,
+        request_timeout: float = 30.0,
+        temperature: float = 0.2,
     ) -> None:
+        """
+        Initialize the LLM API client using OpenRouter.
+        
+        Args:
+            api_key: OpenRouter API key (or set OPENROUTER_API_KEY env var)
+            model: Model name. Can be a short name from POPULAR_MODELS or full OpenRouter model ID
+                  Examples: "gemini-flash", "gpt-4o-mini", "google/gemini-2.5-flash"
+            buy_tokens: Tokens that indicate a buy action
+            sell_tokens: Tokens that indicate a sell action
+            confidence_threshold: Minimum confidence to execute a trade
+            request_timeout: HTTP request timeout in seconds
+            temperature: Model temperature (0.0-1.0)
+        """
         self.buy_tokens = tuple(
             token.lower() for token in (buy_tokens or ("buy", "long"))
         )
@@ -40,13 +85,22 @@ class LLMAPI:
             token.lower() for token in (sell_tokens or ("sell", "short"))
         )
         self.confidence_threshold = confidence_threshold
-        key = api_key or os.getenv("GEMINI_API_KEY")
+        self.request_timeout = request_timeout
+        self.temperature = temperature
+        
+        # Get API key from parameter or environment
+        key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not key:
             raise ValueError(
-                "Gemini API key missing. Provide api_key or set GEMINI_API_KEY."
+                "OpenRouter API key missing. Provide api_key or set OPENROUTER_API_KEY."
             )
-        self.model = model
-        self._client = genai.Client(api_key=key)
+        self.api_key = key
+        
+        # Resolve model name (support both short names and full IDs)
+        self.model = POPULAR_MODELS.get(model, model)
+        
+        # OpenRouter endpoint
+        self.endpoint = "https://openrouter.ai/api/v1/chat/completions"
 
     def get_prompt(self, market_snapshot: Any, open_positions: Any) -> str:
         """Builds a concise instruction prompt for the LLM."""
@@ -87,11 +141,67 @@ class LLMAPI:
     def decide_from_market(
         self, market_snapshot: Any, open_positions: Any
     ) -> LLMDecision:
-        """Calls Gemini with generated prompt and parses the response."""
+        """Invokes OpenRouter with generated prompt and parses the response."""
 
         prompt = self.get_prompt(market_snapshot, open_positions)
-        response = self._call_gemini(prompt)
+        response = self._call_openrouter(prompt)
         return self.decide(response)
+
+    def _call_openrouter(self, prompt: str) -> str:
+        """Makes a request to OpenRouter API and returns the response text."""
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/auxiliary-ai/walter",  # Optional: for OpenRouter rankings
+            "X-Title": "Walter Trading Bot",  # Optional: app name for OpenRouter
+        }
+        
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "You are a trading assistant."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": self.temperature,
+        }
+        
+        response = requests.post(
+            self.endpoint, 
+            headers=headers, 
+            json=payload, 
+            timeout=self.request_timeout
+        )
+        response.raise_for_status()
+        return self._parse_response(response.json())
+
+    def _parse_response(self, payload: dict) -> str:
+        """Parses OpenRouter response (OpenAI-compatible format)."""
+        
+        if not isinstance(payload, dict):
+            return str(payload).strip()
+        
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return str(payload).strip()
+        
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            return str(payload).strip()
+        
+        # Try to get message content
+        message = choice.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+        
+        # Fallback: try text field
+        text = choice.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        
+        return str(payload).strip()
 
     def _normalize_response(self, response: Any) -> str:
         if isinstance(response, str):
@@ -139,30 +249,3 @@ class LLMAPI:
             if value:
                 return value[0].upper() + value[1:].lower()
         return None
-
-    def _call_gemini(self, prompt: str) -> str:
-        """Executes a fast Gemini API call and returns the combined text output."""
-
-        result = self._client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-        )
-        return self._collapse_response(result)
-
-    def _collapse_response(self, result: Any) -> str:
-        text = getattr(result, "text", None)
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-        parts = getattr(result, "candidates", None)
-        if isinstance(parts, list):
-            chunks: list[str] = []
-            for candidate in parts:
-                chunk = getattr(candidate, "content", None)
-                if chunk and getattr(chunk, "parts", None):
-                    for part in chunk.parts:
-                        part_text = getattr(part, "text", None)
-                        if isinstance(part_text, str):
-                            chunks.append(part_text)
-            if chunks:
-                return " ".join(chunks).strip()
-        return str(result).strip()
