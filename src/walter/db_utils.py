@@ -62,6 +62,19 @@ def ensure_schema() -> None:
         
     CREATE INDEX IF NOT EXISTS idx_order_attempts_snapshot_id
     ON order_attempts (snapshot_id);
+
+    CREATE TABLE IF NOT EXISTS account_snapshots (
+        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        captured_at TIMESTAMPTZ NOT NULL,
+        account_value DOUBLE PRECISION,
+        total_ntl_pos DOUBLE PRECISION,
+        total_raw_usd DOUBLE PRECISION,
+        total_margin_used DOUBLE PRECISION,
+        withdrawable DOUBLE PRECISION,
+        raw_snapshot JSONB NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_account_snapshots_captured_at
+        ON account_snapshots (captured_at DESC);
     """
     with get_pool().connection() as conn:
         conn.execute(ddl)
@@ -149,3 +162,38 @@ def save_order_attempt(
         order_id = cur.fetchone()["id"]
         conn.commit()
         return order_id
+
+
+def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]):
+
+    # Extract fields from marginSummary
+    margin_summary = snapshot.get("marginSummary", {})
+    account_value = margin_summary.get("accountValue")
+    total_ntl_pos = margin_summary.get("totalNtlPos")
+    total_raw_usd = margin_summary.get("totalRawUsd")
+    total_margin_used = margin_summary.get("totalMarginUsed")
+    withdrawable = snapshot.get("withdrawable")
+
+    sql = """
+    INSERT INTO account_snapshots (
+        captured_at, account_value, total_ntl_pos,
+        total_raw_usd, total_margin_used, withdrawable, raw_snapshot
+    ) VALUES (
+        %(captured_at)s, %(account_value)s, %(total_ntl_pos)s,
+        %(total_raw_usd)s, %(total_margin_used)s, %(withdrawable)s, %(raw_snapshot)s
+    )
+    RETURNING id;
+    """
+    params = {
+        "captured_at": captured_at,
+        "account_value": account_value,
+        "total_ntl_pos": total_ntl_pos,
+        "total_raw_usd": total_raw_usd,
+        "total_margin_used": total_margin_used,
+        "withdrawable": withdrawable,
+        "raw_snapshot": json.dumps(snapshot),
+    }
+    
+    with get_pool().connection() as conn:
+        cur = conn.execute(sql, params)
+        conn.commit()
