@@ -54,6 +54,7 @@ def ensure_schema() -> None:
         decision_action TEXT NOT NULL,
         decision_confidence DOUBLE PRECISION,
         snapshot_id BIGINT REFERENCES market_snapshots(id) ON DELETE SET NULL,
+        account_snapshot_id BIGINT REFERENCES account_snapshots(id) ON DELETE SET NULL,
         order_payload JSONB,
         order_placed BOOL
     );
@@ -81,7 +82,7 @@ def ensure_schema() -> None:
         conn.commit()
 
 
-def save_snapshot(snapshot: Mapping[str, Any],captured_at) -> int:
+def save_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
     data = dict(snapshot)
     open_interest = data.get("open_interest")
     if isinstance(open_interest, (list, tuple)):
@@ -130,7 +131,8 @@ def save_order_attempt(
     decision_action: str,
     decision_confidence: float,
     snapshot_id: int | None,
-    order_payload: Mapping[str, Any],
+    account_snapshot_id: int | None = None,
+    order_payload: Mapping[str, Any] | None,  # Updated type hint
     order_placed: Any | None = None,
 ) -> int:
     sql = """
@@ -138,14 +140,14 @@ def save_order_attempt(
     created_at,
         coin, is_buy, size, leverage, tif,
         decision_action, decision_confidence,
-        snapshot_id, order_payload, order_placed
+        snapshot_id, account_snapshot_id, order_payload, order_placed
     ) VALUES (%(created_at)s,%(coin)s, %(is_buy)s, %(size)s, %(leverage)s, %(tif)s,
               %(decision_action)s, %(decision_confidence)s,
-              %(snapshot_id)s, %(order_payload)s, %(order_placed)s)
+              %(snapshot_id)s, %(account_snapshot_id)s, %(order_payload)s, %(order_placed)s)
     RETURNING id;
     """
     params = {
-        "created_at":created_at ,
+        "created_at": created_at,
         "coin": coin,
         "is_buy": is_buy,
         "size": size,
@@ -154,7 +156,8 @@ def save_order_attempt(
         "decision_action": decision_action,
         "decision_confidence": decision_confidence,
         "snapshot_id": snapshot_id,
-        "order_payload": json.dumps(order_payload),
+        "account_snapshot_id": account_snapshot_id,
+        "order_payload": json.dumps(order_payload) if order_payload else None,
         "order_placed": order_placed,
     }
     with get_pool().connection() as conn:
@@ -164,7 +167,7 @@ def save_order_attempt(
         return order_id
 
 
-def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]):
+def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]) -> int:
 
     # Extract fields from marginSummary
     margin_summary = snapshot.get("marginSummary", {})
@@ -193,7 +196,36 @@ def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]):
         "withdrawable": withdrawable,
         "raw_snapshot": json.dumps(snapshot),
     }
-    
+
     with get_pool().connection() as conn:
         cur = conn.execute(sql, params)
+        account_id = cur.fetchone()["id"]
         conn.commit()
+        return account_id
+
+
+def get_recent_decisions(limit: int = 10) -> list[dict]:
+    """Fetches the most recent order attempts with their context."""
+    sql = """
+    SELECT 
+        oa.created_at,
+        oa.decision_action,
+        oa.decision_confidence,
+        oa.is_buy,
+        oa.size,
+        oa.leverage,
+        oa.tif,
+        ms.raw_snapshot as market_snapshot,
+        acs.raw_snapshot as account_snapshot
+    FROM order_attempts oa
+    LEFT JOIN market_snapshots ms ON oa.snapshot_id = ms.id
+    LEFT JOIN account_snapshots acs ON oa.account_snapshot_id = acs.id
+    ORDER BY oa.created_at DESC
+    LIMIT %(limit)s;
+    """
+    with get_pool().connection() as conn:
+        cur = conn.execute(sql, {"limit": limit})
+        rows = cur.fetchall()
+
+        # We need to reverse them to be in chronological order for the LLM
+        return list(reversed(rows))

@@ -10,50 +10,31 @@ from typing import Any, Iterable
 import requests
 
 
+from walter.db_utils import get_recent_decisions
+
 # Popular free models on OpenRouter
 POPULAR_MODELS = {
     # Google (Free)
     "gemini-flash": "google/gemini-2.0-flash-exp:free",
     "gemini-pro": "google/gemini-exp-1206:free",
     "gemma-2-9b": "google/gemma-2-9b-it:free",
-    
     # DeepSeek (Free)
     "deepseek-r1": "deepseek/deepseek-r1:free",
     "deepseek-v3": "deepseek/deepseek-v3:free",
-    
     # Meta Llama (Free)
     "llama-3.2-3b": "meta-llama/llama-3.2-3b-instruct:free",
     "llama-3.2-1b": "meta-llama/llama-3.2-1b-instruct:free",
     "llama-3.1-8b": "meta-llama/llama-3.1-8b-instruct:free",
     "llama-3.1-70b": "meta-llama/llama-3.1-70b-instruct:free",
-    
     # Qwen (Free)
     "qwen-2.5-coder-32b": "qwen/qwen-2.5-coder-32b-instruct:free",
     "qwen-2.5-7b": "qwen/qwen-2.5-7b-instruct:free",
-    
     # Mistral (Free)
     "mistral-7b": "mistralai/mistral-7b-instruct:free",
-    
     # Microsoft (Free)
     "phi-3-mini": "microsoft/phi-3-mini-128k-instruct:free",
     "phi-3-medium": "microsoft/phi-3-medium-128k-instruct:free",
 }
-
-
-@dataclass(frozen=True)
-class MemoryEntry:
-    """Stores a past interaction for context."""
-    market_snapshot: Any
-    open_positions: Any
-    decision: LLMDecision
-
-
-@dataclass(frozen=True)
-class MemoryEntry:
-    """Stores a past interaction for context."""
-    market_snapshot: Any
-    open_positions: Any
-    decision: LLMDecision
 
 
 @dataclass(frozen=True)
@@ -85,7 +66,7 @@ class LLMAPI:
     ) -> None:
         """
         Initialize the LLM API client using OpenRouter.
-        
+
         Args:
             api_key: OpenRouter API key (or set OPENROUTER_API_KEY env var)
             model: Model name. Can be a short name from POPULAR_MODELS or full OpenRouter model ID
@@ -105,13 +86,7 @@ class LLMAPI:
         self.confidence_threshold = confidence_threshold
         self.request_timeout = request_timeout
         self.temperature = temperature
-        self.history: deque[MemoryEntry] = deque(maxlen=10)
-        
-        # Get API key from parameter or environment
-        key = api_key or os.getenv("OPENROUTER_API_KEY")
-        self.request_timeout = request_timeout
-        self.temperature = temperature
-        
+
         # Get API key from parameter or environment
         key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not key:
@@ -119,35 +94,31 @@ class LLMAPI:
                 "OpenRouter API key missing. Provide api_key or set OPENROUTER_API_KEY."
             )
         self.api_key = key
-        
+
         # Resolve model name (support both short names and full IDs)
         self.model = POPULAR_MODELS.get(model, model)
-        
+
         # OpenRouter endpoint
         self.endpoint = "https://openrouter.ai/api/v1/chat/completions"
 
     def get_prompt(self, market_snapshot: Any, open_positions: Any) -> str:
         """Builds a concise instruction prompt for the LLM."""
-        
+
+        recent_decisions = get_recent_decisions(10)
         history_text = ""
-        if self.history:
+        if recent_decisions:
             history_text = "History of recent decisions (newest last):\n"
-            for i, entry in enumerate(self.history, 1):
+            for i, entry in enumerate(recent_decisions, 1):
+                # Handle cases where snapshot might be None if fetching failed or partial data
+                m_snap = entry.get("market_snapshot", "N/A")
+                a_pos = entry.get("account_snapshot", "N/A")
+                action = entry.get("decision_action", "unknown")
+                conf = entry.get("decision_confidence", 0.0)
+
                 history_text += (
-                    f"[{i}] Market: {entry.market_snapshot} | "
-                    f"Positions: {entry.open_positions} -> "
-                    f"Decision: {entry.decision.action} (conf={entry.decision.confidence})\n"
-                )
-            history_text += "\n"
-        
-        history_text = ""
-        if self.history:
-            history_text = "History of recent decisions (newest last):\n"
-            for i, entry in enumerate(self.history, 1):
-                history_text += (
-                    f"[{i}] Market: {entry.market_snapshot} | "
-                    f"Positions: {entry.open_positions} -> "
-                    f"Decision: {entry.decision.action} (conf={entry.decision.confidence})\n"
+                    f"[{i}] Market: {m_snap} | "
+                    f"Positions: {a_pos} -> "
+                    f"Decision: {action} (conf={conf})\n"
                 )
             history_text += "\n"
 
@@ -155,12 +126,11 @@ class LLMAPI:
             "You are a trading assistant. Given the following market snapshot and "
             "open positions, respond with BUY, SELL, or HOLD plus an optional "
             "confidence value between 0 and 1. Include desired position size "
-            "(in contracts), leverage (integer), and TIF (time-in-force) code. Include desired position size "
             "(in contracts), leverage (integer), and TIF (time-in-force) code.\n\n"
             f"{history_text}"
             f"Current Market Snapshot: {market_snapshot}\n"
             f"Current Open Positions: {open_positions}\n"
-            "Answer in the format: ACTION (confidence=0.0, size=1.0, leverage=1, tif=Ioc, size=1.0, leverage=1, tif=Ioc)."
+            "Answer in the format: ACTION (confidence=0.0, size=1.0, leverage=1, tif=Ioc)."
         )
 
     def decide(self, response: Any) -> LLMDecision:
@@ -191,29 +161,18 @@ class LLMAPI:
 
         prompt = self.get_prompt(market_snapshot, open_positions)
         response = self._call_openrouter(prompt)
-        decision = self.decide(response)
-        
-        self.history.append(
-            MemoryEntry(
-                market_snapshot=market_snapshot,
-                open_positions=open_positions,
-                decision=decision
-            )
-        )
-        return decision
-        response = self._call_openrouter(prompt)
         return self.decide(response)
 
     def _call_openrouter(self, prompt: str) -> str:
         """Makes a request to OpenRouter API and returns the response text."""
-        
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/auxiliary-ai/walter",  # Optional: for OpenRouter rankings
             "X-Title": "Walter Trading Bot",  # Optional: app name for OpenRouter
         }
-        
+
         payload = {
             "model": self.model,
             "messages": [
@@ -222,42 +181,39 @@ class LLMAPI:
             ],
             "temperature": self.temperature,
         }
-        
+
         response = requests.post(
-            self.endpoint, 
-            headers=headers, 
-            json=payload, 
-            timeout=self.request_timeout
+            self.endpoint, headers=headers, json=payload, timeout=self.request_timeout
         )
         response.raise_for_status()
         return self._parse_response(response.json())
 
     def _parse_response(self, payload: dict) -> str:
         """Parses OpenRouter response (OpenAI-compatible format)."""
-        
+
         if not isinstance(payload, dict):
             return str(payload).strip()
-        
+
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             return str(payload).strip()
-        
+
         choice = choices[0]
         if not isinstance(choice, dict):
             return str(payload).strip()
-        
+
         # Try to get message content
         message = choice.get("message")
         if isinstance(message, dict):
             content = message.get("content")
             if isinstance(content, str) and content.strip():
                 return content.strip()
-        
+
         # Fallback: try text field
         text = choice.get("text")
         if isinstance(text, str) and text.strip():
             return text.strip()
-        
+
         return str(payload).strip()
 
     def _normalize_response(self, response: Any) -> str:
