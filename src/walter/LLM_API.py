@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from collections import deque
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -127,6 +128,17 @@ class LLMAPI:
 
     def get_prompt(self, market_snapshot: Any, open_positions: Any) -> str:
         """Builds a concise instruction prompt for the LLM."""
+        
+        history_text = ""
+        if self.history:
+            history_text = "History of recent decisions (newest last):\n"
+            for i, entry in enumerate(self.history, 1):
+                history_text += (
+                    f"[{i}] Market: {entry.market_snapshot} | "
+                    f"Positions: {entry.open_positions} -> "
+                    f"Decision: {entry.decision.action} (conf={entry.decision.confidence})\n"
+                )
+            history_text += "\n"
         
         history_text = ""
         if self.history:
