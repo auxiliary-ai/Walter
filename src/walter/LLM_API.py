@@ -43,6 +43,7 @@ class LLMDecision:
 
     action: str
     confidence: float
+    thinking: str | None
     execute: bool
     raw_response: str
     size: float | None
@@ -72,10 +73,6 @@ class LLMAPI:
             model: Model name. Can be a short name from POPULAR_MODELS or full OpenRouter model ID
                   Examples: "gemini-flash", "gpt-4o-mini", "google/gemini-2.5-flash"
             buy_tokens: Tokens that indicate a buy action
-            sell_tokens: Tokens that indicate a sell action
-            confidence_threshold: Minimum confidence to execute a trade
-            request_timeout: HTTP request timeout in seconds
-            temperature: Model temperature (0.0-1.0)
         """
         self.buy_tokens = tuple(
             token.lower() for token in (buy_tokens or ("buy", "long"))
@@ -114,29 +111,46 @@ class LLMAPI:
                 a_pos = entry.get("account_snapshot", "N/A")
                 action = entry.get("decision_action", "unknown")
                 conf = entry.get("decision_confidence", 0.0)
+                thinking = entry.get("thinking", "N/A")
 
                 history_text += (
                     f"[{i}] Market: {m_snap} | "
                     f"Positions: {a_pos} -> "
+                    f"Thinking: {thinking} | "
                     f"Decision: {action} (conf={conf})\n"
                 )
             history_text += "\n"
 
         return (
             "You are a trading assistant. Given the following market snapshot and "
-            "open positions, respond with BUY, SELL, or HOLD plus an optional "
+            "open positions, first provide a short thinking process (max 1 sentence) "
+            "starting with 'THINKING:', then the decision.\n\n"
+            "Respond with BUY, SELL, or HOLD plus an optional "
             "confidence value between 0 and 1. Include desired position size "
             "(in contracts), leverage (integer), and TIF (time-in-force) code.\n\n"
             f"{history_text}"
             f"Current Market Snapshot: {market_snapshot}\n"
             f"Current Open Positions: {open_positions}\n"
-            "Answer in the format: ACTION (confidence=0.0, size=1.0, leverage=1, tif=Ioc)."
+            "Answer in the format:\n"
+            "THINKING: [Short reasoning here...]\n"
+            "ACTION (confidence=0.0, size=1.0, leverage=1, tif=Ioc)."
         )
 
     def decide(self, response: Any) -> LLMDecision:
         """Converts an arbitrary LLM response into an actionable decision."""
 
         response_text = self._normalize_response(response)
+
+        # Extract thinking
+        thinking = None
+        thinking_match = re.search(
+            r"THINKING:\s*(.*?)(?:\n|$|ACTION)",
+            response_text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if thinking_match:
+            thinking = thinking_match.group(1).strip()
+
         action = self._infer_action(response_text)
         confidence = self._extract_confidence(response_text, action)
         size = self._extract_numeric_value(response_text, "size")
@@ -144,9 +158,11 @@ class LLMAPI:
         leverage = int(leverage_value) if leverage_value is not None else None
         tif = self._extract_tif(response_text)
         execute = action != "hold" and confidence >= self.confidence_threshold
+
         return LLMDecision(
             action=action,
             confidence=confidence,
+            thinking=thinking,
             execute=execute,
             raw_response=response_text,
             size=size,
@@ -224,6 +240,20 @@ class LLMAPI:
         return str(response)
 
     def _infer_action(self, response_text: str) -> str:
+        # Simple heuristic to look for action keywords, prioritising the format "ACTION (..."
+        # We search specifically in the part AFTER "THINKING:" if possible, or generally
+
+        # Try to split by lines and look for the last ACTION line if thinking is present
+        lines = response_text.lower().split("\n")
+        for line in reversed(lines):
+            for token in self.buy_tokens:
+                if token in line:
+                    return "buy"
+            for token in self.sell_tokens:
+                if token in line:
+                    return "sell"
+
+        # Fallback to general search
         text = response_text.lower()
         for token in self.buy_tokens:
             if token in text:

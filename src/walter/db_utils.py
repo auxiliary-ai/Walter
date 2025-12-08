@@ -77,9 +77,49 @@ def ensure_schema() -> None:
     CREATE INDEX IF NOT EXISTS idx_account_snapshots_captured_at
         ON account_snapshots (captured_at DESC);
     """
+
+    migration_sql = """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM information_schema.columns 
+            WHERE table_name = 'order_attempts' 
+            AND column_name = 'account_snapshot_id'
+        ) THEN
+            ALTER TABLE order_attempts 
+            ADD COLUMN account_snapshot_id BIGINT REFERENCES account_snapshots(id) ON DELETE SET NULL;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM information_schema.columns 
+            WHERE table_name = 'order_attempts' 
+            AND column_name = 'thinking'
+        ) THEN
+            ALTER TABLE order_attempts 
+            ADD COLUMN thinking TEXT;
+        END IF;
+    END $$;
+    """
+
     with get_pool().connection() as conn:
         conn.execute(ddl)
+        conn.execute(migration_sql)
         conn.commit()
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively replace NaN with None for JSON serialization."""
+    if isinstance(obj, float):
+        return None if obj != obj else obj  # obj != obj covers NaN
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_sanitize_for_json(v) for v in obj)
+    return obj
 
 
 def save_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
@@ -87,6 +127,10 @@ def save_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
     open_interest = data.get("open_interest")
     if isinstance(open_interest, (list, tuple)):
         open_interest = open_interest[0] if open_interest else None
+
+    # Sanitize data for JSON
+    sanitized_data = _sanitize_for_json(data)
+
     sql = """
     INSERT INTO market_snapshots (
     captured_at,
@@ -111,7 +155,7 @@ def save_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
         "open_interest": open_interest,
         "buy_pressure": data.get("buy_pressure"),
         "net_volume": data.get("net_volume"),
-        "raw_snapshot": json.dumps(data),
+        "raw_snapshot": json.dumps(sanitized_data),
     }
     with get_pool().connection() as conn:
         cur = conn.execute(sql, params)
@@ -130,19 +174,22 @@ def save_order_attempt(
     tif: str | None,
     decision_action: str,
     decision_confidence: float,
+    thinking: str | None = None,
     snapshot_id: int | None,
     account_snapshot_id: int | None = None,
     order_payload: Mapping[str, Any] | None,  # Updated type hint
     order_placed: Any | None = None,
 ) -> int:
+    sanitized_payload = _sanitize_for_json(order_payload) if order_payload else None
+
     sql = """
     INSERT INTO order_attempts (
     created_at,
         coin, is_buy, size, leverage, tif,
-        decision_action, decision_confidence,
+        decision_action, decision_confidence, thinking,
         snapshot_id, account_snapshot_id, order_payload, order_placed
     ) VALUES (%(created_at)s,%(coin)s, %(is_buy)s, %(size)s, %(leverage)s, %(tif)s,
-              %(decision_action)s, %(decision_confidence)s,
+              %(decision_action)s, %(decision_confidence)s, %(thinking)s,
               %(snapshot_id)s, %(account_snapshot_id)s, %(order_payload)s, %(order_placed)s)
     RETURNING id;
     """
@@ -155,9 +202,10 @@ def save_order_attempt(
         "tif": tif,
         "decision_action": decision_action,
         "decision_confidence": decision_confidence,
+        "thinking": thinking,
         "snapshot_id": snapshot_id,
         "account_snapshot_id": account_snapshot_id,
-        "order_payload": json.dumps(order_payload) if order_payload else None,
+        "order_payload": json.dumps(sanitized_payload) if sanitized_payload else None,
         "order_placed": order_placed,
     }
     with get_pool().connection() as conn:
@@ -177,6 +225,8 @@ def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]) -> int:
     total_margin_used = margin_summary.get("totalMarginUsed")
     withdrawable = snapshot.get("withdrawable")
 
+    sanitized_snapshot = _sanitize_for_json(snapshot)
+
     sql = """
     INSERT INTO account_snapshots (
         captured_at, account_value, total_ntl_pos,
@@ -194,7 +244,7 @@ def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]) -> int:
         "total_raw_usd": total_raw_usd,
         "total_margin_used": total_margin_used,
         "withdrawable": withdrawable,
-        "raw_snapshot": json.dumps(snapshot),
+        "raw_snapshot": json.dumps(sanitized_snapshot),
     }
 
     with get_pool().connection() as conn:
@@ -211,6 +261,7 @@ def get_recent_decisions(limit: int = 10) -> list[dict]:
         oa.created_at,
         oa.decision_action,
         oa.decision_confidence,
+        oa.thinking,
         oa.is_buy,
         oa.size,
         oa.leverage,

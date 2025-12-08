@@ -38,6 +38,7 @@ def main() -> None:
             account_snapshot_id = save_account_snapshot(current_time, response)
             print(response)
             decision = llm_api.decide_from_market(snapshot, response)
+            print(f"Thinking: {decision.thinking}")
             print(decision)
             if not decision.execute:
                 print(
@@ -53,6 +54,7 @@ def main() -> None:
                     tif=None,
                     decision_action="hold",
                     decision_confidence=decision.confidence,
+                    thinking=decision.thinking,
                     snapshot_id=snapshot_id,
                     account_snapshot_id=account_snapshot_id,
                     order_payload=None,
@@ -88,6 +90,7 @@ def main() -> None:
                     tif=order_args["tif"],
                     decision_action=decision.action,
                     decision_confidence=decision.confidence,
+                    thinking=decision.thinking,
                     snapshot_id=snapshot_id,
                     account_snapshot_id=account_snapshot_id,
                     order_payload=order_args,
