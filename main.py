@@ -23,7 +23,12 @@ general_public_key = str(os.getenv("GENERAL_PUBLIC_KEY"))
 api_wallet_private_key = str(os.getenv("API_WALLET_PRIVATE_KEY"))
 llm_model = os.getenv("LLM_MODEL")
 openrouter_key = os.getenv("OPENROUTER_API_KEY")
-llm_api = LLMAPI(api_key=openrouter_key, model=llm_model or "gemini-flash")
+history_length = int(os.getenv("LLM_HISTORY_LENGTH", "5"))
+llm_api = LLMAPI(
+    api_key=openrouter_key,
+    model=llm_model or "gemini-flash",
+    history_length=history_length,
+)
 ensure_schema()
 
 

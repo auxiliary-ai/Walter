@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-from collections import deque
-from collections import deque
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -64,6 +62,7 @@ class LLMAPI:
         confidence_threshold: float = 0.55,
         request_timeout: float = 30.0,
         temperature: float = 0.2,
+        history_length: int = 5,
     ) -> None:
         """
         Initialize the LLM API client using OpenRouter.
@@ -101,7 +100,7 @@ class LLMAPI:
     def get_prompt(self, market_snapshot: Any, open_positions: Any) -> str:
         """Builds a concise instruction prompt for the LLM."""
 
-        recent_decisions = get_recent_decisions(10)
+        recent_decisions = get_recent_decisions(self.history_length)
         history_text = ""
         if recent_decisions:
             history_text = "History of recent decisions (newest last):\n"
