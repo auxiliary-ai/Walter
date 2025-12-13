@@ -6,7 +6,12 @@ from dotenv import load_dotenv
 from walter.market_data import GetMarketSnapshot
 from walter.hyperliquid_API import GetOpenPositionDetails, PlaceOrder
 from walter.LLM_API import LLMAPI
-from walter.db_utils import ensure_schema, save_snapshot, save_order_attempt, save_account_snapshot
+from walter.db_utils import (
+    ensure_schema,
+    save_snapshot,
+    save_order_attempt,
+    save_account_snapshot,
+)
 from datetime import datetime, timezone
 
 for dotenv_file in (".env.local", ".env"):
@@ -18,7 +23,12 @@ general_public_key = str(os.getenv("GENERAL_PUBLIC_KEY"))
 api_wallet_private_key = str(os.getenv("API_WALLET_PRIVATE_KEY"))
 llm_model = os.getenv("LLM_MODEL")
 openrouter_key = os.getenv("OPENROUTER_API_KEY")
-llm_api = LLMAPI(api_key=openrouter_key, model=llm_model or "gemini-flash")
+history_length = int(os.getenv("LLM_HISTORY_LENGTH", "5"))
+llm_api = LLMAPI(
+    api_key=openrouter_key,
+    model=llm_model or "gemini-flash",
+    history_length=history_length,
+)
 ensure_schema()
 
 
@@ -30,9 +40,10 @@ def main() -> None:
             snapshot = GetMarketSnapshot(coin, "1h", hyperliquid_url, 6)
             print(snapshot)
             response = GetOpenPositionDetails(hyperliquid_url, general_public_key)
-            save_account_snapshot(current_time, response)
+            account_snapshot_id = save_account_snapshot(current_time, response)
             print(response)
             decision = llm_api.decide_from_market(snapshot, response)
+            print(f"Thinking: {decision.thinking}")
             print(decision)
             if not decision.execute:
                 print(
@@ -48,7 +59,9 @@ def main() -> None:
                     tif=None,
                     decision_action="hold",
                     decision_confidence=decision.confidence,
+                    thinking=decision.thinking,
                     snapshot_id=snapshot_id,
+                    account_snapshot_id=account_snapshot_id,
                     order_payload=None,
                     order_placed=None,
                 )
@@ -82,13 +95,16 @@ def main() -> None:
                     tif=order_args["tif"],
                     decision_action=decision.action,
                     decision_confidence=decision.confidence,
+                    thinking=decision.thinking,
                     snapshot_id=snapshot_id,
+                    account_snapshot_id=account_snapshot_id,
                     order_payload=order_args,
                     order_placed=order_placed,
                 )
             time.sleep(interval)
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}")
+
 
 if __name__ == "__main__":
     main()
