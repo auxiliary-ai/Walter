@@ -97,6 +97,9 @@ class LLMAPI:
         # OpenRouter endpoint
         self.endpoint = "https://openrouter.ai/api/v1/chat/completions"
 
+        # History length for recent decisions
+        self.history_length = history_length
+
     def get_prompt(self, market_snapshot: Any, open_positions: Any) -> str:
         """Builds a concise instruction prompt for the LLM."""
 

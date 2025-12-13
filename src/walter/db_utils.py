@@ -53,6 +53,7 @@ def ensure_schema() -> None:
         tif TEXT,
         decision_action TEXT NOT NULL,
         decision_confidence DOUBLE PRECISION,
+        thinking TEXT,
         snapshot_id BIGINT REFERENCES market_snapshots(id) ON DELETE SET NULL,
         account_snapshot_id BIGINT REFERENCES account_snapshots(id) ON DELETE SET NULL,
         order_payload JSONB,
@@ -78,34 +79,8 @@ def ensure_schema() -> None:
         ON account_snapshots (captured_at DESC);
     """
 
-    migration_sql = """
-    DO $$
-    BEGIN
-        IF NOT EXISTS (
-            SELECT 1 
-            FROM information_schema.columns 
-            WHERE table_name = 'order_attempts' 
-            AND column_name = 'account_snapshot_id'
-        ) THEN
-            ALTER TABLE order_attempts 
-            ADD COLUMN account_snapshot_id BIGINT REFERENCES account_snapshots(id) ON DELETE SET NULL;
-        END IF;
-
-        IF NOT EXISTS (
-            SELECT 1 
-            FROM information_schema.columns 
-            WHERE table_name = 'order_attempts' 
-            AND column_name = 'thinking'
-        ) THEN
-            ALTER TABLE order_attempts 
-            ADD COLUMN thinking TEXT;
-        END IF;
-    END $$;
-    """
-
     with get_pool().connection() as conn:
         conn.execute(ddl)
-        conn.execute(migration_sql)
         conn.commit()
 
 
