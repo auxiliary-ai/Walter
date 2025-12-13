@@ -43,6 +43,19 @@ def ensure_schema() -> None:
     CREATE INDEX IF NOT EXISTS idx_market_snapshots_coin_time
         ON market_snapshots (coin, captured_at DESC);
 
+    CREATE TABLE IF NOT EXISTS account_snapshots (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    captured_at TIMESTAMPTZ NOT NULL,
+    account_value DOUBLE PRECISION,
+    total_ntl_pos DOUBLE PRECISION,
+    total_raw_usd DOUBLE PRECISION,
+    total_margin_used DOUBLE PRECISION,
+    withdrawable DOUBLE PRECISION,
+    raw_snapshot JSONB NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_account_snapshots_captured_at
+        ON account_snapshots (captured_at DESC);
+
     CREATE TABLE IF NOT EXISTS order_attempts (
         id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -65,18 +78,6 @@ def ensure_schema() -> None:
     CREATE INDEX IF NOT EXISTS idx_order_attempts_snapshot_id
     ON order_attempts (snapshot_id);
 
-    CREATE TABLE IF NOT EXISTS account_snapshots (
-        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        captured_at TIMESTAMPTZ NOT NULL,
-        account_value DOUBLE PRECISION,
-        total_ntl_pos DOUBLE PRECISION,
-        total_raw_usd DOUBLE PRECISION,
-        total_margin_used DOUBLE PRECISION,
-        withdrawable DOUBLE PRECISION,
-        raw_snapshot JSONB NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_account_snapshots_captured_at
-        ON account_snapshots (captured_at DESC);
     """
 
     with get_pool().connection() as conn:
