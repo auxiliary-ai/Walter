@@ -13,6 +13,7 @@ from walter.db_utils import (
     save_account_snapshot,
 )
 from datetime import datetime, timezone
+from walter.news_API_aggregator import CryptoNewsAggregator
 
 for dotenv_file in (".env.local", ".env"):
     load_dotenv(dotenv_path=dotenv_file, override=False)
@@ -36,6 +37,7 @@ def main() -> None:
     print(f"Scheduler running every {interval} seconds.")
     try:
         while True:
+            news = CryptoNewsAggregator.getAggregatedNews() #news will be fed to dedicated LLM for summerization in next PR
             current_time = datetime.now(timezone.utc)
             snapshot = GetMarketSnapshot(coin, "1h", hyperliquid_url, 6)
             print(snapshot)
