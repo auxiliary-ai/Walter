@@ -18,71 +18,78 @@ _pool: ConnectionPool | None = None
 def get_pool() -> ConnectionPool:
     global _pool
     if _pool is None:
-        _pool = ConnectionPool(PG_CONN_STR, kwargs={"row_factory": dict_row})
+        _pool = ConnectionPool(
+            PG_CONN_STR, kwargs={"row_factory": dict_row}, timeout=10
+        )
     return _pool
 
 
 def ensure_schema() -> None:
-    ddl = """
-    CREATE TABLE IF NOT EXISTS market_snapshots (
+    try:
+        ddl = """
+        CREATE TABLE IF NOT EXISTS market_snapshots (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            captured_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            coin TEXT NOT NULL,
+            current_price DOUBLE PRECISION,
+            ema10 DOUBLE PRECISION,
+            ema20 DOUBLE PRECISION,
+            funding_rate_latest DOUBLE PRECISION,
+            funding_rate_avg DOUBLE PRECISION,
+            volatility_24h DOUBLE PRECISION,
+            volume_24h DOUBLE PRECISION,
+            open_interest DOUBLE PRECISION,
+            buy_pressure DOUBLE PRECISION,
+            net_volume DOUBLE PRECISION,
+            raw_snapshot JSONB NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_market_snapshots_coin_time
+            ON market_snapshots (coin, captured_at DESC);
+
+        CREATE TABLE IF NOT EXISTS account_snapshots (
         id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        captured_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        coin TEXT NOT NULL,
-        current_price DOUBLE PRECISION,
-        ema10 DOUBLE PRECISION,
-        ema20 DOUBLE PRECISION,
-        funding_rate_latest DOUBLE PRECISION,
-        funding_rate_avg DOUBLE PRECISION,
-        volatility_24h DOUBLE PRECISION,
-        volume_24h DOUBLE PRECISION,
-        open_interest DOUBLE PRECISION,
-        buy_pressure DOUBLE PRECISION,
-        net_volume DOUBLE PRECISION,
+        captured_at TIMESTAMPTZ NOT NULL,
+        account_value DOUBLE PRECISION,
+        total_ntl_pos DOUBLE PRECISION,
+        total_raw_usd DOUBLE PRECISION,
+        total_margin_used DOUBLE PRECISION,
+        withdrawable DOUBLE PRECISION,
         raw_snapshot JSONB NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_market_snapshots_coin_time
-        ON market_snapshots (coin, captured_at DESC);
+        );
+        CREATE INDEX IF NOT EXISTS idx_account_snapshots_captured_at
+            ON account_snapshots (captured_at DESC);
 
-    CREATE TABLE IF NOT EXISTS account_snapshots (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    captured_at TIMESTAMPTZ NOT NULL,
-    account_value DOUBLE PRECISION,
-    total_ntl_pos DOUBLE PRECISION,
-    total_raw_usd DOUBLE PRECISION,
-    total_margin_used DOUBLE PRECISION,
-    withdrawable DOUBLE PRECISION,
-    raw_snapshot JSONB NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_account_snapshots_captured_at
-        ON account_snapshots (captured_at DESC);
+        CREATE TABLE IF NOT EXISTS order_attempts (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            coin TEXT NOT NULL,
+            is_buy BOOLEAN NOT NULL,
+            size DOUBLE PRECISION,
+            leverage INTEGER,
+            tif TEXT,
+            decision_action TEXT NOT NULL,
+            decision_confidence DOUBLE PRECISION,
+            thinking TEXT,
+            snapshot_id BIGINT REFERENCES market_snapshots(id) ON DELETE SET NULL,
+            account_snapshot_id BIGINT REFERENCES account_snapshots(id) ON DELETE SET NULL,
+            order_payload JSONB,
+            order_placed BOOL
+        );
+        CREATE INDEX IF NOT EXISTS idx_order_attempts_coin_time
+            ON order_attempts (coin, created_at DESC);
+            
+        CREATE INDEX IF NOT EXISTS idx_order_attempts_snapshot_id
+        ON order_attempts (snapshot_id);
 
-    CREATE TABLE IF NOT EXISTS order_attempts (
-        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        coin TEXT NOT NULL,
-        is_buy BOOLEAN NOT NULL,
-        size DOUBLE PRECISION,
-        leverage INTEGER,
-        tif TEXT,
-        decision_action TEXT NOT NULL,
-        decision_confidence DOUBLE PRECISION,
-        thinking TEXT,
-        snapshot_id BIGINT REFERENCES market_snapshots(id) ON DELETE SET NULL,
-        account_snapshot_id BIGINT REFERENCES account_snapshots(id) ON DELETE SET NULL,
-        order_payload JSONB,
-        order_placed BOOL
-    );
-    CREATE INDEX IF NOT EXISTS idx_order_attempts_coin_time
-        ON order_attempts (coin, created_at DESC);
-        
-    CREATE INDEX IF NOT EXISTS idx_order_attempts_snapshot_id
-    ON order_attempts (snapshot_id);
+        """
 
-    """
-
-    with get_pool().connection() as conn:
-        conn.execute(ddl)
-        conn.commit()
+        with get_pool().connection() as conn:
+            conn.execute(ddl)
+            conn.commit()
+    except Exception as e:
+        print(f"A database error occurred: {e}")
+        print("Exiting gracefully")
+        exit(1)
 
 
 def _sanitize_for_json(obj: Any) -> Any:
@@ -98,7 +105,7 @@ def _sanitize_for_json(obj: Any) -> Any:
     return obj
 
 
-def save_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
+def save_market_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
     data = dict(snapshot)
     open_interest = data.get("open_interest")
     if isinstance(open_interest, (list, tuple)):
