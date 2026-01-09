@@ -7,10 +7,11 @@ from walter.market_data import GetMarketSnapshot
 from walter.hyperliquid_API import GetOpenPositionDetails, PlaceOrder
 from walter.LLM_API import LLMAPI
 from walter.db_utils import (
-    ensure_schema,
+    initialize_database,
     save_market_snapshot,
     save_order_attempt,
     save_account_snapshot,
+    save_news_snapshot,
 )
 from datetime import datetime, timezone
 from walter.news_API_aggregator import CryptoNewsAggregator
@@ -31,7 +32,7 @@ llm_api = LLMAPI(
     model=llm_model or "gemini-flash",
     history_length=history_length,
 )
-ensure_schema()
+initialize_database()
 
 
 def main() -> None:
@@ -55,7 +56,8 @@ def main() -> None:
                         f"LLM decision '{decision.action}' below confidence threshold. Skipping order."
                     )
                     account_snapshot_id = save_account_snapshot(current_time, accountSnapshot)
-                    snapshot_id = save_market_snapshot(marketSnapshot, captured_at=current_time)
+                    market_snapshot_id = save_market_snapshot(marketSnapshot, captured_at=current_time)
+                    news_snapshot_id = save_news_snapshot(major_titles, captured_at=current_time)
                     save_order_attempt(
                         created_at=current_time,
                         coin=coin,
@@ -66,7 +68,8 @@ def main() -> None:
                         decision_action="hold",
                         decision_confidence=decision.confidence,
                         thinking=decision.thinking,
-                        snapshot_id=snapshot_id,
+                        market_snapshot_id=market_snapshot_id,
+                        news_snapshot_id=news_snapshot_id,
                         account_snapshot_id=account_snapshot_id,
                         order_payload=None,
                         order_placed=None,
@@ -92,7 +95,8 @@ def main() -> None:
                 )
                 if order_placed:
                     account_snapshot_id = save_account_snapshot(current_time, accountSnapshot)
-                    snapshot_id = save_market_snapshot(marketSnapshot, captured_at=current_time)
+                    market_snapshot_id = save_market_snapshot(marketSnapshot, captured_at=current_time)
+                    news_snapshot_id = save_news_snapshot(major_titles, captured_at=current_time)
                     save_order_attempt(
                         created_at=current_time,
                         coin=coin,
@@ -103,7 +107,8 @@ def main() -> None:
                         decision_action=decision.action,
                         decision_confidence=decision.confidence,
                         thinking=decision.thinking,
-                        snapshot_id=snapshot_id,
+                        news_snapshot_id=news_snapshot_id,
+                        market_snapshot_id=market_snapshot_id,
                         account_snapshot_id=account_snapshot_id,
                         order_payload=order_args,
                         order_placed=order_placed,
