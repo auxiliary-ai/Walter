@@ -76,7 +76,6 @@ def initialize_database() -> None:
             leverage INTEGER,
             tif TEXT,
             decision_action TEXT NOT NULL,
-            decision_confidence DOUBLE PRECISION,
             thinking TEXT,
             market_snapshot_id BIGINT REFERENCES market_snapshots (id) ON DELETE SET NULL,
             account_snapshot_id BIGINT REFERENCES account_snapshots (id) ON DELETE SET NULL,
@@ -163,7 +162,6 @@ def save_order_attempt(
     leverage: int | None,
     tif: str | None,
     decision_action: str,
-    decision_confidence: float,
     thinking: str | None = None,
     market_snapshot_id: int | None,
     account_snapshot_id: int | None = None,
@@ -177,10 +175,10 @@ def save_order_attempt(
     INSERT INTO order_attempts (
     created_at,
         coin, is_buy, size, leverage, tif,
-        decision_action, decision_confidence, thinking,
+        decision_action, thinking,
         market_snapshot_id, account_snapshot_id, news_snapshot_id, order_payload, order_placed
     ) VALUES (%(created_at)s,%(coin)s, %(is_buy)s, %(size)s, %(leverage)s, %(tif)s,
-              %(decision_action)s, %(decision_confidence)s, %(thinking)s,
+              %(decision_action)s, %(thinking)s,
               %(market_snapshot_id)s, %(account_snapshot_id)s, %(news_snapshot_id)s, %(order_payload)s, %(order_placed)s)
     RETURNING id;
     """
@@ -192,7 +190,6 @@ def save_order_attempt(
         "leverage": leverage,
         "tif": tif,
         "decision_action": decision_action,
-        "decision_confidence": decision_confidence,
         "thinking": thinking,
         "market_snapshot_id": market_snapshot_id,
         "account_snapshot_id": account_snapshot_id,
@@ -252,7 +249,6 @@ def get_recent_decisions(limit: int = 10) -> list[dict]:
     SELECT 
         oa.created_at,
         oa.decision_action,
-        oa.decision_confidence,
         oa.thinking,
         oa.is_buy,
         oa.size,
@@ -273,11 +269,12 @@ def get_recent_decisions(limit: int = 10) -> list[dict]:
         # We need to reverse them to be in chronological order for the LLM
         return list(reversed(rows))
 
-def save_news_snapshot(summary: Mapping[str, Any],captured_at) -> int:
+
+def save_news_snapshot(summary: Mapping[str, Any], captured_at) -> int:
     sql = """
     INSERT INTO news_summaries (captured_at,summary) VALUES (%(captured_at)s,%(summary)s) RETURNING id;
     """
-    params = {"summary": json.dumps(summary),"captured_at":captured_at}
+    params = {"summary": json.dumps(summary), "captured_at": captured_at}
     with get_pool().connection() as conn:
         cur = conn.execute(sql, params)
         news_id = cur.fetchone()["id"]

@@ -51,9 +51,9 @@ def main() -> None:
                 decision = llm_api.decide_from_market(marketSnapshot, accountSnapshot)
                 print(f"Thinking: {decision.thinking}")
                 print(decision)
-                if not decision.execute:
+                if decision.action == "hold":
                     print(
-                        f"LLM decision '{decision.action}' below confidence threshold. Skipping order."
+                        f"LLM decision '{decision.action}'. Skipping placing order."
                     )
                     account_snapshot_id = save_account_snapshot(current_time, accountSnapshot)
                     market_snapshot_id = save_market_snapshot(marketSnapshot, captured_at=current_time)
@@ -66,7 +66,6 @@ def main() -> None:
                         leverage=None,
                         tif=None,
                         decision_action="hold",
-                        decision_confidence=decision.confidence,
                         thinking=decision.thinking,
                         market_snapshot_id=market_snapshot_id,
                         news_snapshot_id=news_snapshot_id,
@@ -105,7 +104,6 @@ def main() -> None:
                         leverage=order_args["leverage"],
                         tif=order_args["tif"],
                         decision_action=decision.action,
-                        decision_confidence=decision.confidence,
                         thinking=decision.thinking,
                         news_snapshot_id=news_snapshot_id,
                         market_snapshot_id=market_snapshot_id,
