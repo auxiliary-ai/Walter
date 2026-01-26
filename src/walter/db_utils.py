@@ -4,13 +4,7 @@ from typing import Any, Mapping
 from psycopg import connect
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
-from dotenv import load_dotenv
-
-for dotenv_file in (".env.local", ".env"):
-    load_dotenv(dotenv_path=dotenv_file, override=False)
-PG_CONN_STR = os.getenv("PG_CONN_STR")
-if not PG_CONN_STR:
-    raise RuntimeError("PG_CONN_STR environment variable is not set")
+from walter.config import PG_CONN_STR
 
 _pool: ConnectionPool | None = None
 

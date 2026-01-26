@@ -82,7 +82,9 @@ class LLMAPI:
         self.temperature = temperature
 
         # Get API key from parameter or environment
-        key = api_key or os.getenv("OPENROUTER_API_KEY")
+        from walter.config import OPENROUTER_API_KEY
+
+        key = api_key or OPENROUTER_API_KEY
         if not key:
             raise ValueError(
                 "OpenRouter API key missing. Provide api_key or set OPENROUTER_API_KEY."

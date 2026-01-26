@@ -5,19 +5,19 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment variables
-for dotenv_file in (".env.local", ".env"):
-    load_dotenv(dotenv_path=dotenv_file, override=False)
-
-CP_URL = os.getenv("CP_URL")
-CP_CRYPTOPANIC_KEY = os.getenv("CP_CRYPTOPANIC_KEY")
-CP_CURRENCIES = os.getenv("CP_CURRENCIES")
-CP_FILTER = os.getenv("CP_FILTER")
-CP_KIND = os.getenv("CP_KIND")
-CC_URL = os.getenv("CC_URL")
-CC_CRYPTOCOMPARE_KEY = os.getenv("CC_CRYPTOCOMPARE_KEY")
-CC_CATEGORIES = os.getenv("CC_CATEGORIES")
-CC_FEEDS = os.getenv("CC_FEEDS")
-CC_SORT = os.getenv("CC_SORT")
+# Load environment variables
+from walter.config import (
+    CP_URL,
+    CP_CRYPTOPANIC_KEY,
+    CP_CURRENCIES,
+    CP_FILTER,
+    CP_KIND,
+    CC_URL,
+    CC_CRYPTOCOMPARE_KEY,
+    CC_CATEGORIES,
+    CC_FEEDS,
+    CC_SORT,
+)
 
 
 class CryptoNewsAPI:
