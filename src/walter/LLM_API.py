@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -40,7 +41,6 @@ class LLMDecision:
     """Represents the trading decision returned by the LLM."""
 
     action: str
-    confidence: float
     thinking: str | None
     execute: bool
     raw_response: str
@@ -59,7 +59,6 @@ class LLMAPI:
         model: str = "gemini-flash",
         buy_tokens: Iterable[str] | None = None,
         sell_tokens: Iterable[str] | None = None,
-        confidence_threshold: float = 0.55,
         request_timeout: float = 30.0,
         temperature: float = 0.2,
         history_length: int = 5,
@@ -79,12 +78,13 @@ class LLMAPI:
         self.sell_tokens = tuple(
             token.lower() for token in (sell_tokens or ("sell", "short"))
         )
-        self.confidence_threshold = confidence_threshold
         self.request_timeout = request_timeout
         self.temperature = temperature
 
         # Get API key from parameter or environment
-        key = api_key or os.getenv("OPENROUTER_API_KEY")
+        from walter.config import OPENROUTER_API_KEY
+
+        key = api_key or OPENROUTER_API_KEY
         if not key:
             raise ValueError(
                 "OpenRouter API key missing. Provide api_key or set OPENROUTER_API_KEY."
@@ -112,14 +112,13 @@ class LLMAPI:
                 m_snap = entry.get("market_snapshot", "N/A")
                 a_pos = entry.get("account_snapshot", "N/A")
                 action = entry.get("decision_action", "unknown")
-                conf = entry.get("decision_confidence", 0.0)
                 thinking = entry.get("thinking", "N/A")
 
                 history_text += (
                     f"[{i}] Market: {m_snap} | "
                     f"Positions: {a_pos} -> "
                     f"Thinking: {thinking} | "
-                    f"Decision: {action} (conf={conf})\n"
+                    f"Decision: {action}\n"
                 )
             history_text += "\n"
 
@@ -127,48 +126,76 @@ class LLMAPI:
             "You are a trading assistant. Given the following market snapshot and "
             "open positions, first provide a short thinking process (max 1 sentence) "
             "starting with 'THINKING:', then the decision.\n\n"
-            "Respond with BUY, SELL, or HOLD plus an optional "
-            "confidence value between 0 and 1. Include desired position size "
-            "(in contracts), leverage (integer), and TIF (time-in-force) code.\n\n"
+            "Respond with BUY, SELL, or HOLD. "
+            "If ACTION is not HOLD, include desired position size, leverage and tif "
+            "If ACTION is BUY or SELL, provide ACTION_DETAILS with size, leverage and tif"
             f"{history_text}"
             f"Current Market Snapshot: {market_snapshot}\n"
             f"Current Open Positions: {open_positions}\n"
-            "Answer in the format:\n"
-            "THINKING: [Short reasoning here...]\n"
-            "ACTION (confidence=0.0, size=1.0, leverage=1, tif=Ioc)."
+            "Answer in JSON format (example below):\n"
+            f"""{{
+            "THINKING": "Short reasoning here...",
+            "ACTION": "BUY or SELL or HOLD",
+            "ACTION_DETAILS": {{ 
+                "size": 1.0,
+                "leverage": 1,
+                "tif": "Ioc"
+            }}
+            }}"""
         )
 
     def decide(self, response: Any) -> LLMDecision:
         """Converts an arbitrary LLM response into an actionable decision."""
 
-        response_text = self._normalize_response(response)
+        raw_response = str(response)
+        response_data = {}
 
-        # Extract thinking
-        thinking = None
-        thinking_match = re.search(
-            r"THINKING:\s*(.*?)(?:\n|$|ACTION)",
-            response_text,
-            re.IGNORECASE | re.DOTALL,
-        )
-        if thinking_match:
-            thinking = thinking_match.group(1).strip()
+        if isinstance(response, dict):
+            response_data = response
+        else:
+            # Clean up potential markdown formatting
+            clean_text = raw_response.strip()
+            if clean_text.startswith("```"):
+                # Remove opening backticks and optional language identifier
+                clean_text = re.sub(r"^```\w*\s*", "", clean_text)
+                # Remove closing backticks
+                clean_text = re.sub(r"\s*```$", "", clean_text)
 
-        action = self._infer_action(response_text)
-        confidence = self._extract_confidence(response_text, action)
-        size = self._extract_numeric_value(response_text, "size")
-        leverage_value = self._extract_numeric_value(response_text, "leverage")
-        leverage = int(leverage_value) if leverage_value is not None else None
-        tif = self._extract_tif(response_text)
-        execute = action != "hold" and confidence >= self.confidence_threshold
+            try:
+                response_data = json.loads(clean_text)
+            except json.JSONDecodeError:
+                # If JSON parsing fails, we could fallback to regex, but for now let's rely on the prompt being strict
+                # Or provide a minimal fallback
+                pass
+
+        thinking = response_data.get("THINKING")
+        action = response_data.get("ACTION", "HOLD").upper()
+
+        details = response_data.get("ACTION_DETAILS", {})
+        size = details.get("size")
+        leverage = details.get("leverage")
+        tif = details.get("tif")
+
+        # Normalize action
+        # The prompt asks for BUY, SELL, HOLD.
+        # Check against configured tokens just in case, or just map standard ones.
+        # But since we switched to strict JSON, let's respect the JSON value.
+        # However, to be safe with existing logic which might expect "buy", "sell":
+        normalized_action = "hold"
+        if action in ("BUY", "LONG"):
+            normalized_action = "buy"
+        elif action in ("SELL", "SHORT"):
+            normalized_action = "sell"
+
+        execute = normalized_action != "hold"
 
         return LLMDecision(
-            action=action,
-            confidence=confidence,
+            action=normalized_action,
             thinking=thinking,
             execute=execute,
-            raw_response=response_text,
-            size=size,
-            leverage=leverage,
+            raw_response=raw_response,
+            size=float(size) if size is not None else None,
+            leverage=int(leverage) if leverage is not None else None,
             tif=tif,
         )
 
@@ -194,7 +221,7 @@ class LLMAPI:
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are a trading assistant."},
+                # {"role": "system", "content": "You are a trading assistant."},
                 {"role": "user", "content": prompt},
             ],
             "temperature": self.temperature,
@@ -203,6 +230,8 @@ class LLMAPI:
         response = requests.post(
             self.endpoint, headers=headers, json=payload, timeout=self.request_timeout
         )
+        if not response.ok:
+            print(f"OpenRouter Error: {response.status_code} - {response.text}")
         response.raise_for_status()
         return self._parse_response(response.json())
 
@@ -234,13 +263,6 @@ class LLMAPI:
 
         return str(payload).strip()
 
-    def _normalize_response(self, response: Any) -> str:
-        if isinstance(response, str):
-            return response.strip()
-        if isinstance(response, (dict, list, tuple)):
-            return str(response)
-        return str(response)
-
     def _infer_action(self, response_text: str) -> str:
         # Simple heuristic to look for action keywords, prioritising the format "ACTION (..."
         # We search specifically in the part AFTER "THINKING:" if possible, or generally
@@ -254,6 +276,8 @@ class LLMAPI:
             for token in self.sell_tokens:
                 if token in line:
                     return "sell"
+            if "hold" in line:
+                return "hold"
 
         # Fallback to general search
         text = response_text.lower()
@@ -264,18 +288,6 @@ class LLMAPI:
             if token in text:
                 return "sell"
         return "hold"
-
-    def _extract_confidence(self, response_text: str, action: str) -> float:
-        match = re.search(
-            r"confidence\s*=\s*(0?\.\d+|1(?:\.0+)?)", response_text.lower()
-        )
-        if match:
-            return min(1.0, max(0.0, float(match.group(1))))
-        match = re.search(r"(\d{1,3})%", response_text)
-        if match:
-            percentage = float(match.group(1))
-            return min(1.0, max(0.0, percentage / 100))
-        return 1.0 if action != "hold" else 0.0
 
     def _extract_numeric_value(self, response_text: str, key: str) -> float | None:
         pattern = rf"{re.escape(key)}\s*=\s*(-?\d+(?:\.\d+)?)"

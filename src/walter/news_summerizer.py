@@ -5,14 +5,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 import html
-from dotenv import load_dotenv
-import os
-
-for dotenv_file in (".env.local", ".env"):
-    load_dotenv(dotenv_path=dotenv_file, override=False)
-
-SENTENCE_TRANSFORMER_MODEL = os.getenv("SENTENCE_TRANSFORMER_MODEL")
-EPS = float(os.getenv("EPS"))
+from walter.config import SENTENCE_TRANSFORMER_MODEL, EPS
 
 
 def get_summaries_from_news(all_news):
