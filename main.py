@@ -1,7 +1,7 @@
 import time
 
 from walter.market_data import GetMarketSnapshot
-from walter.hyperliquid_API import GetOpenPositionDetails, PlaceOrder
+from walter.hyperliquid_API import GetOpenPositionDetails, PlaceOrder, get_withdrawable_balance
 from walter.LLM_API import LLMAPI
 from walter.db_utils import (
     initialize_database,
@@ -96,6 +96,46 @@ def main() -> None:
                     "leverage": decision.leverage,
                     "tif": decision.tif or "Ioc",
                 }
+
+                # ── Balance guard (applies to both buy and sell orders) ──
+                available = get_withdrawable_balance(accountSnapshot)
+                current_price = marketSnapshot.get("current_price", 0)
+                leverage = decision.leverage if decision.leverage else 1
+                required_margin = (decision.size * current_price) / leverage
+
+                if available is None or required_margin > available:
+                    available_str = f"${available:,.2f}" if available is not None else "unknown"
+                    print(
+                        f"⚠️ Order rejected ({decision.action.upper()}): "
+                        f"required margin ${required_margin:,.2f} "
+                        f"exceeds available balance {available_str}"
+                    )
+                    account_snapshot_id = save_account_snapshot(
+                        current_time, accountSnapshot
+                    )
+                    market_snapshot_id = save_market_snapshot(
+                        marketSnapshot, captured_at=current_time
+                    )
+                    news_snapshot_id = save_news_snapshot(
+                        major_titles, captured_at=current_time
+                    )
+                    save_order_attempt(
+                        created_at=current_time,
+                        coin=coin,
+                        is_buy=order_args["is_buy"],
+                        size=order_args["size"],
+                        leverage=order_args["leverage"],
+                        tif=order_args["tif"],
+                        decision_action=f"{decision.action}_rejected_insufficient_balance",
+                        thinking=decision.thinking,
+                        market_snapshot_id=market_snapshot_id,
+                        news_snapshot_id=news_snapshot_id,
+                        account_snapshot_id=account_snapshot_id,
+                        order_payload=order_args,
+                        order_placed=False,
+                    )
+                    time.sleep(interval)
+                    continue
 
                 order_placed = PlaceOrder(
                     hyperliquid_url,

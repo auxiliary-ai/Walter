@@ -1,7 +1,7 @@
 """Top-level package for the Walter trading toolkit."""
 
 from .LLM_API import LLMAPI, LLMDecision
-from .hyperliquid_API import GetOpenPositionDetails, PlaceOrder
+from .hyperliquid_API import GetOpenPositionDetails, PlaceOrder, get_withdrawable_balance
 from .market_data import GetMarketSnapshot
 from .news_API_aggregator import CryptoNewsAggregator
 
@@ -10,6 +10,7 @@ __all__ = [
     "LLMDecision",
     "GetOpenPositionDetails",
     "PlaceOrder",
+    "get_withdrawable_balance",
     "GetMarketSnapshot",
     "CryptoNewsAggregator",
 ]
