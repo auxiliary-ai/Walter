@@ -58,7 +58,7 @@ def main() -> None:
                     hyperliquid_url, general_public_key
                 )
                 print(accountSnapshot)
-                decision = llm_api.decide_from_market(marketSnapshot, accountSnapshot)
+                decision = llm_api.decide_from_market(marketSnapshot, accountSnapshot, major_titles)
                 print(f"Thinking: {decision.thinking}")
                 print(decision)
                 if decision.action == "hold":
