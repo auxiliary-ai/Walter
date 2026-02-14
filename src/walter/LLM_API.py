@@ -100,7 +100,7 @@ class LLMAPI:
         # History length for recent decisions
         self.history_length = history_length
 
-    def get_prompt(self, market_snapshot: Any, open_positions: Any) -> str:
+    def get_prompt(self, market_snapshot: Any, open_positions: Any, news_titles: list[str] | None = None) -> str:
         """Builds a concise instruction prompt for the LLM."""
 
         recent_decisions = get_recent_decisions(self.history_length)
@@ -128,10 +128,17 @@ class LLMAPI:
             "starting with 'THINKING:', then the decision.\n\n"
             "Respond with BUY, SELL, or HOLD. "
             "If ACTION is not HOLD, include desired position size, leverage and tif "
-            "If ACTION is BUY or SELL, provide ACTION_DETAILS with size, leverage and tif"
+            "If ACTION is BUY or SELL, provide ACTION_DETAILS with size, leverage and tif\n"
+            "IMPORTANT: The 'withdrawable' field in the open positions data represents "
+            "your available balance in USD. Never propose an order whose required margin "
+            "(size * current_price / leverage) exceeds this available balance. "
+            "If the available balance is too low for any meaningful trade, respond with HOLD.\n"
             f"{history_text}"
             f"Current Market Snapshot: {market_snapshot}\n"
             f"Current Open Positions: {open_positions}\n"
+            f"Current News Headlines: {', '.join(news_titles) if news_titles else 'No news available'}\n"
+            "Factor the news sentiment into your decision — positive news may support BUY, "
+            "negative news may support SELL or HOLD.\n"
             "Answer in JSON format (example below):\n"
             f"""{{
             "THINKING": "Short reasoning here...",
@@ -200,11 +207,11 @@ class LLMAPI:
         )
 
     def decide_from_market(
-        self, market_snapshot: Any, open_positions: Any
+        self, market_snapshot: Any, open_positions: Any, news_titles: list[str] | None = None
     ) -> LLMDecision:
         """Invokes OpenRouter with generated prompt and parses the response."""
 
-        prompt = self.get_prompt(market_snapshot, open_positions)
+        prompt = self.get_prompt(market_snapshot, open_positions, news_titles)
         response = self._call_openrouter(prompt)
         return self.decide(response)
 
