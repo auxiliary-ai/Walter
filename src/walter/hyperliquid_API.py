@@ -19,6 +19,22 @@ def GetOpenPositionDetails(base_url, general_public_key):
     # TODO: very long response, check with ML engineer what to keep of it
 
 
+def get_withdrawable_balance(account_snapshot: dict) -> float | None:
+    """Return the withdrawable (available) balance from a clearinghouseState snapshot.
+
+    The Hyperliquid ``clearinghouseState`` response contains a ``withdrawable``
+    field (string) representing the USD amount available for new positions after
+    accounting for existing margin requirements.
+
+    Returns ``None`` when the value is missing or cannot be parsed so callers
+    can treat it as "unknown" and refuse the order.
+    """
+    try:
+        return float(account_snapshot.get("withdrawable", 0))
+    except (TypeError, ValueError):
+        return None
+
+
 def PlaceOrder(base_url, api_wallet_private_key, is_buy, coin, size, leverage, tif):
     # =============================================================================
     # CONFIGURATION - EDIT THESE
