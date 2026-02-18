@@ -108,9 +108,6 @@ def _sanitize_for_json(obj: Any) -> Any:
 
 def save_market_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
     data = dict(snapshot)
-    open_interest = data.get("open_interest")
-    if isinstance(open_interest, (list, tuple)):
-        open_interest = open_interest[0] if open_interest else None
 
     # Sanitize data for JSON
     sanitized_data = _sanitize_for_json(data)
@@ -136,7 +133,7 @@ def save_market_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
         "funding_rate_avg": data.get("funding_rate_avg"),
         "volatility_24h": data.get("volatility_24h"),
         "volume_24h": data.get("volume_24h"),
-        "open_interest": open_interest,
+        "open_interest": data.get("open_interest"),
         "buy_pressure": data.get("buy_pressure"),
         "net_volume": data.get("net_volume"),
         "raw_snapshot": json.dumps(sanitized_data),
@@ -241,16 +238,12 @@ def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]) -> int:
 def get_recent_decisions(limit: int = 10) -> list[dict]:
     """Fetches the most recent order attempts with their context."""
     sql = """
-    SELECT 
+    SELECT
         oa.created_at,
         oa.decision_action,
         oa.thinking,
-        oa.is_buy,
-        oa.size,
-        oa.leverage,
-        oa.tif,
-        ms.raw_snapshot as market_snapshot,
-        acs.raw_snapshot as account_snapshot
+        ms.current_price,
+        acs.withdrawable
     FROM order_attempts oa
     LEFT JOIN market_snapshots ms ON oa.market_snapshot_id = ms.id
     LEFT JOIN account_snapshots acs ON oa.account_snapshot_id = acs.id

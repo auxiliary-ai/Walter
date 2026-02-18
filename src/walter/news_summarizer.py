@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 _sentence_model = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL)
 
 
-def get_summaries_from_news(all_news):
+def get_summaries_from_news(all_news: list[dict]) -> dict:
     """Cluster news articles into major narratives and secondary signals."""
     cleaned_texts = []
     clickbait = ["heres", "could", "might", "skyrocket", "why", "what happened"]

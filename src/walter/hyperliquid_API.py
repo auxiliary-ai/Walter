@@ -9,7 +9,7 @@ import json
 logger = logging.getLogger(__name__)
 
 
-def get_open_position_details(base_url, general_public_key):
+def get_open_position_details(base_url: str, general_public_key: str) -> dict:
     """Fetch clearinghouse state for the given public key."""
     payload = json.dumps(
         {"type": "clearinghouseState", "user": general_public_key, "dex": ""}
@@ -36,7 +36,15 @@ def get_withdrawable_balance(account_snapshot: dict) -> float | None:
         return None
 
 
-def place_order(base_url, api_wallet_private_key, is_buy, coin, size, leverage, tif):
+def place_order(
+    base_url: str,
+    api_wallet_private_key: str,
+    is_buy: bool,
+    coin: str,
+    size: float,
+    leverage: int,
+    tif: str,
+) -> bool:
     """Place a market order on Hyperliquid."""
     # =============================================================================
     # CONFIGURATION

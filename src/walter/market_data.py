@@ -93,7 +93,6 @@ def get_market_snapshot(
     asset_ctx = asset_contexts[coin_index]
 
     open_interest = asset_ctx.get("openInterest")
-    oracle_px = asset_ctx.get("oraclePx")
 
     # ------------------------------------------------
     # 5. Recent trades

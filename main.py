@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Any
 
 from walter.market_data import get_market_snapshot
 from walter.hyperliquid_api import (
@@ -47,23 +48,23 @@ openrouter_key = OPENROUTER_API_KEY
 history_length = int(LLM_HISTORY_LENGTH)
 llm_api = LLMAPI(
     api_key=openrouter_key,
-    model=llm_model or "gemini-flash",
+    model=llm_model,
     history_length=history_length,
 )
 initialize_database()
 
 
 def _persist_cycle(
-    current_time,
-    account_snapshot,
-    market_snapshot,
-    major_titles,
-    decision,
+    current_time: Any,
+    account_snapshot: dict,
+    market_snapshot: dict,
+    major_titles: list[str],
+    decision: Any,
     *,
-    order_args=None,
-    order_placed=None,
-    decision_action_override=None,
-):
+    order_args: dict | None = None,
+    order_placed: bool | None = None,
+    decision_action_override: str | None = None,
+) -> None:
     """Save all snapshots and the order attempt for a single loop iteration."""
     account_snapshot_id = save_account_snapshot(current_time, account_snapshot)
     market_snapshot_id = save_market_snapshot(market_snapshot, captured_at=current_time)
