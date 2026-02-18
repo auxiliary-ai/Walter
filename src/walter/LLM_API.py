@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import logging
 import re
 import json
 from dataclasses import dataclass
@@ -10,6 +10,8 @@ import requests
 
 
 from walter.db_utils import get_recent_decisions
+
+logger = logging.getLogger(__name__)
 
 # Popular free models on OpenRouter
 POPULAR_MODELS = {
@@ -100,7 +102,12 @@ class LLMAPI:
         # History length for recent decisions
         self.history_length = history_length
 
-    def get_prompt(self, market_snapshot: Any, open_positions: Any, news_titles: list[str] | None = None) -> str:
+    def get_prompt(
+        self,
+        market_snapshot: Any,
+        open_positions: Any,
+        news_titles: list[str] | None = None,
+    ) -> str:
         """Builds a concise instruction prompt for the LLM."""
 
         recent_decisions = get_recent_decisions(self.history_length)
@@ -108,7 +115,6 @@ class LLMAPI:
         if recent_decisions:
             history_text = "History of recent decisions (newest last):\n"
             for i, entry in enumerate(recent_decisions, 1):
-                # Handle cases where snapshot might be None if fetching failed or partial data
                 m_snap = entry.get("market_snapshot", "N/A")
                 a_pos = entry.get("account_snapshot", "N/A")
                 action = entry.get("decision_action", "unknown")
@@ -140,15 +146,15 @@ class LLMAPI:
             "Factor the news sentiment into your decision — positive news may support BUY, "
             "negative news may support SELL or HOLD.\n"
             "Answer in JSON format (example below):\n"
-            f"""{{
-            "THINKING": "Short reasoning here...",
-            "ACTION": "BUY or SELL or HOLD",
-            "ACTION_DETAILS": {{ 
-                "size": 1.0,
-                "leverage": 1,
-                "tif": "Ioc"
-            }}
-            }}"""
+            f"""{{\n"""
+            f"""            "THINKING": "Short reasoning here...",\n"""
+            f"""            "ACTION": "BUY or SELL or HOLD",\n"""
+            f"""            "ACTION_DETAILS": {{ \n"""
+            f"""                "size": 1.0,\n"""
+            f"""                "leverage": 1,\n"""
+            f"""                "tif": "Ioc"\n"""
+            f"""            }}\n"""
+            f"""            }}"""
         )
 
     def decide(self, response: Any) -> LLMDecision:
@@ -163,17 +169,15 @@ class LLMAPI:
             # Clean up potential markdown formatting
             clean_text = raw_response.strip()
             if clean_text.startswith("```"):
-                # Remove opening backticks and optional language identifier
                 clean_text = re.sub(r"^```\w*\s*", "", clean_text)
-                # Remove closing backticks
                 clean_text = re.sub(r"\s*```$", "", clean_text)
 
             try:
                 response_data = json.loads(clean_text)
             except json.JSONDecodeError:
-                # If JSON parsing fails, we could fallback to regex, but for now let's rely on the prompt being strict
-                # Or provide a minimal fallback
-                pass
+                logger.warning(
+                    "Failed to parse LLM response as JSON: %s", clean_text[:200]
+                )
 
         thinking = response_data.get("THINKING")
         action = response_data.get("ACTION", "HOLD").upper()
@@ -184,10 +188,6 @@ class LLMAPI:
         tif = details.get("tif")
 
         # Normalize action
-        # The prompt asks for BUY, SELL, HOLD.
-        # Check against configured tokens just in case, or just map standard ones.
-        # But since we switched to strict JSON, let's respect the JSON value.
-        # However, to be safe with existing logic which might expect "buy", "sell":
         normalized_action = "hold"
         if action in ("BUY", "LONG"):
             normalized_action = "buy"
@@ -207,7 +207,10 @@ class LLMAPI:
         )
 
     def decide_from_market(
-        self, market_snapshot: Any, open_positions: Any, news_titles: list[str] | None = None
+        self,
+        market_snapshot: Any,
+        open_positions: Any,
+        news_titles: list[str] | None = None,
     ) -> LLMDecision:
         """Invokes OpenRouter with generated prompt and parses the response."""
 
@@ -221,14 +224,13 @@ class LLMAPI:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/auxiliary-ai/walter",  # Optional: for OpenRouter rankings
-            "X-Title": "Walter Trading Bot",  # Optional: app name for OpenRouter
+            "HTTP-Referer": "https://github.com/auxiliary-ai/walter",
+            "X-Title": "Walter Trading Bot",
         }
 
         payload = {
             "model": self.model,
             "messages": [
-                # {"role": "system", "content": "You are a trading assistant."},
                 {"role": "user", "content": prompt},
             ],
             "temperature": self.temperature,
@@ -238,7 +240,9 @@ class LLMAPI:
             self.endpoint, headers=headers, json=payload, timeout=self.request_timeout
         )
         if not response.ok:
-            print(f"OpenRouter Error: {response.status_code} - {response.text}")
+            logger.error(
+                "OpenRouter Error: %d - %s", response.status_code, response.text
+            )
         response.raise_for_status()
         return self._parse_response(response.json())
 
@@ -256,60 +260,14 @@ class LLMAPI:
         if not isinstance(choice, dict):
             return str(payload).strip()
 
-        # Try to get message content
         message = choice.get("message")
         if isinstance(message, dict):
             content = message.get("content")
             if isinstance(content, str) and content.strip():
                 return content.strip()
 
-        # Fallback: try text field
         text = choice.get("text")
         if isinstance(text, str) and text.strip():
             return text.strip()
 
         return str(payload).strip()
-
-    def _infer_action(self, response_text: str) -> str:
-        # Simple heuristic to look for action keywords, prioritising the format "ACTION (..."
-        # We search specifically in the part AFTER "THINKING:" if possible, or generally
-
-        # Try to split by lines and look for the last ACTION line if thinking is present
-        lines = response_text.lower().split("\n")
-        for line in reversed(lines):
-            for token in self.buy_tokens:
-                if token in line:
-                    return "buy"
-            for token in self.sell_tokens:
-                if token in line:
-                    return "sell"
-            if "hold" in line:
-                return "hold"
-
-        # Fallback to general search
-        text = response_text.lower()
-        for token in self.buy_tokens:
-            if token in text:
-                return "buy"
-        for token in self.sell_tokens:
-            if token in text:
-                return "sell"
-        return "hold"
-
-    def _extract_numeric_value(self, response_text: str, key: str) -> float | None:
-        pattern = rf"{re.escape(key)}\s*=\s*(-?\d+(?:\.\d+)?)"
-        match = re.search(pattern, response_text, flags=re.IGNORECASE)
-        if not match:
-            return None
-        try:
-            return float(match.group(1))
-        except (TypeError, ValueError):
-            return None
-
-    def _extract_tif(self, response_text: str) -> str | None:
-        match = re.search(r"tif\s*=\s*([A-Za-z]+)", response_text, flags=re.IGNORECASE)
-        if match:
-            value = match.group(1).strip()
-            if value:
-                return value[0].upper() + value[1:].lower()
-        return None

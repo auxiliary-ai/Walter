@@ -1,10 +1,11 @@
 import json
-import os
+import logging
 from typing import Any, Mapping
-from psycopg import connect
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from walter.config import PG_CONN_STR
+
+logger = logging.getLogger(__name__)
 
 _pool: ConnectionPool | None = None
 
@@ -87,8 +88,8 @@ def initialize_database() -> None:
             conn.execute(ddl)
             conn.commit()
     except Exception as e:
-        print(f"A database error occurred: {e}")
-        print("Exiting gracefully")
+        logger.critical("A database error occurred: %s", e)
+        logger.critical("Exiting gracefully")
         exit(1)
 
 

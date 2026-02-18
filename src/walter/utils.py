@@ -1,3 +1,0 @@
-#functions that saves data to db
-#helper functions
-#....
