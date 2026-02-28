@@ -51,7 +51,7 @@ All source code lives under `src/walter/`. Key modules:
 | `hyperliquid_API.py`    | Position queries and order placement.                |
 | `news_API_aggregator.py`| CryptoPanic and CryptoCompare news fetching.         |
 | `news_summerizer.py`    | Sentence-transformer embedding + DBSCAN clustering. |
-| `db_utils.py`           | PostgreSQL schema initialisation and persistence.    |
+| `db_utils.py`           | SQLite schema initialisation and persistence.        |
 
 ## Adding Configuration
 

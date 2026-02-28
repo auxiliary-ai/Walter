@@ -11,7 +11,7 @@ COIN = "ETH"
 HYPERLIQUID_URL = "https://api.hyperliquid-testnet.xyz/info"
 
 # LLM Configuration
-LLM_MODEL = "openai/gpt-oss-20b:free"
+LLM_MODEL = "nvidia/nemotron-3-nano-30b-a3b:free"
 LLM_HISTORY_LENGTH = 5
 
 # CryptoPanic Configuration
@@ -35,7 +35,7 @@ API_WALLET_PRIVATE_KEY = os.getenv("API_WALLET_PRIVATE_KEY")
 API_WALLET_PUBLIC_KEY = os.getenv("API_WALLET_PUBLIC_KEY")
 GENERAL_PUBLIC_KEY = os.getenv("GENERAL_PUBLIC_KEY")
 
-PG_CONN_STR = os.getenv("PG_CONN_STR")
+SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "walter.db")
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 

@@ -3,12 +3,12 @@ import time
 from typing import Any
 
 from walter.market_data import get_market_snapshot
-from walter.hyperliquid_api import (
+from walter.hyperliquid_API import (
     get_open_position_details,
     place_order,
     get_withdrawable_balance,
 )
-from walter.llm_api import LLMAPI
+from walter.LLM_API import LLMAPI
 from walter.db_utils import (
     initialize_database,
     save_market_snapshot,

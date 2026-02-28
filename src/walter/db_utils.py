@@ -1,82 +1,85 @@
 import json
 import logging
+import sqlite3
+import threading
 from typing import Any, Mapping
-from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
-from walter.config import PG_CONN_STR
+from walter.config import SQLITE_DB_PATH
 
 logger = logging.getLogger(__name__)
 
-_pool: ConnectionPool | None = None
+_local = threading.local()
 
 
-def get_pool() -> ConnectionPool:
-    global _pool
-    if _pool is None:
-        _pool = ConnectionPool(
-            PG_CONN_STR, kwargs={"row_factory": dict_row}, timeout=10
-        )
-    return _pool
+def _get_conn() -> sqlite3.Connection:
+    """Return a per-thread SQLite connection (created on first call)."""
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(SQLITE_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA foreign_keys=ON;")
+        _local.conn = conn
+    return conn
 
 
 def initialize_database() -> None:
     try:
         ddl = """
         CREATE TABLE IF NOT EXISTS market_snapshots (
-            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            captured_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            captured_at TEXT NOT NULL DEFAULT (datetime('now')),
             coin TEXT NOT NULL,
-            current_price DOUBLE PRECISION,
-            ema10 DOUBLE PRECISION,
-            ema20 DOUBLE PRECISION,
-            funding_rate_latest DOUBLE PRECISION,
-            funding_rate_avg DOUBLE PRECISION,
-            volatility_24h DOUBLE PRECISION,
-            volume_24h DOUBLE PRECISION,
-            open_interest DOUBLE PRECISION,
-            buy_pressure DOUBLE PRECISION,
-            net_volume DOUBLE PRECISION,
-            raw_snapshot JSONB NOT NULL
+            current_price REAL,
+            ema10 REAL,
+            ema20 REAL,
+            funding_rate_latest REAL,
+            funding_rate_avg REAL,
+            volatility_24h REAL,
+            volume_24h REAL,
+            open_interest REAL,
+            buy_pressure REAL,
+            net_volume REAL,
+            raw_snapshot TEXT NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_market_snapshots_coin_time ON market_snapshots (coin, captured_at DESC);
 
         CREATE TABLE IF NOT EXISTS account_snapshots (
-            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            captured_at TIMESTAMPTZ NOT NULL,
-            account_value DOUBLE PRECISION,
-            total_ntl_pos DOUBLE PRECISION,
-            total_raw_usd DOUBLE PRECISION,
-            total_margin_used DOUBLE PRECISION,
-            withdrawable DOUBLE PRECISION,
-            raw_snapshot JSONB NOT NULL
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            captured_at TEXT NOT NULL,
+            account_value REAL,
+            total_ntl_pos REAL,
+            total_raw_usd REAL,
+            total_margin_used REAL,
+            withdrawable REAL,
+            raw_snapshot TEXT NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_account_snapshots_captured_at ON account_snapshots (captured_at DESC);
 
         CREATE TABLE IF NOT EXISTS news_summaries (
-            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            captured_at TIMESTAMPTZ NOT NULL DEFAULT now (),
-            summary JSONB NOT NULL
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+            summary TEXT NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_news_summaries_captured_at ON news_summaries (captured_at DESC);
 
         CREATE TABLE IF NOT EXISTS order_attempts (
-            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
             coin TEXT NOT NULL,
-            is_buy BOOLEAN NOT NULL,
-            size DOUBLE PRECISION,
+            is_buy INTEGER NOT NULL,
+            size REAL,
             leverage INTEGER,
             tif TEXT,
             decision_action TEXT NOT NULL,
             thinking TEXT,
-            market_snapshot_id BIGINT REFERENCES market_snapshots (id) ON DELETE SET NULL,
-            account_snapshot_id BIGINT REFERENCES account_snapshots (id) ON DELETE SET NULL,
-            news_snapshot_id BIGINT REFERENCES news_summaries (id) ON DELETE SET NULL,
-            order_payload JSONB,
-            order_placed BOOL
+            market_snapshot_id INTEGER REFERENCES market_snapshots (id) ON DELETE SET NULL,
+            account_snapshot_id INTEGER REFERENCES account_snapshots (id) ON DELETE SET NULL,
+            news_snapshot_id INTEGER REFERENCES news_summaries (id) ON DELETE SET NULL,
+            order_payload TEXT,
+            order_placed INTEGER
         );
 
         CREATE INDEX IF NOT EXISTS idx_order_attempts_coin_time ON order_attempts (coin, created_at DESC);
@@ -84,9 +87,9 @@ def initialize_database() -> None:
         CREATE INDEX IF NOT EXISTS idx_order_attempts_snapshot_id ON order_attempts (market_snapshot_id);
         """
 
-        with get_pool().connection() as conn:
-            conn.execute(ddl)
-            conn.commit()
+        conn = _get_conn()
+        conn.executescript(ddl)
+        conn.commit()
     except Exception as e:
         logger.critical("A database error occurred: %s", e)
         logger.critical("Exiting gracefully")
@@ -118,13 +121,12 @@ def save_market_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
         coin, current_price, ema10, ema20, funding_rate_latest,
         funding_rate_avg, volatility_24h, volume_24h,
         open_interest, buy_pressure, net_volume, raw_snapshot
-    ) VALUES (%(captured_at)s,%(coin)s, %(current_price)s, %(ema10)s, %(ema20)s, %(funding_rate_latest)s,
-              %(funding_rate_avg)s, %(volatility_24h)s, %(volume_24h)s,
-              %(open_interest)s, %(buy_pressure)s, %(net_volume)s, %(raw_snapshot)s)
-    RETURNING id;
+    ) VALUES (:captured_at,:coin, :current_price, :ema10, :ema20, :funding_rate_latest,
+              :funding_rate_avg, :volatility_24h, :volume_24h,
+              :open_interest, :buy_pressure, :net_volume, :raw_snapshot);
     """
     params = {
-        "captured_at": captured_at,
+        "captured_at": str(captured_at),
         "coin": data.get("coin"),
         "current_price": data.get("current_price"),
         "ema10": data.get("ema10"),
@@ -138,11 +140,10 @@ def save_market_snapshot(snapshot: Mapping[str, Any], captured_at) -> int:
         "net_volume": data.get("net_volume"),
         "raw_snapshot": json.dumps(sanitized_data),
     }
-    with get_pool().connection() as conn:
-        cur = conn.execute(sql, params)
-        market_snapshot_id = cur.fetchone()["id"]
-        conn.commit()
-        return market_snapshot_id
+    conn = _get_conn()
+    cur = conn.execute(sql, params)
+    conn.commit()
+    return cur.lastrowid
 
 
 def save_order_attempt(
@@ -169,15 +170,14 @@ def save_order_attempt(
         coin, is_buy, size, leverage, tif,
         decision_action, thinking,
         market_snapshot_id, account_snapshot_id, news_snapshot_id, order_payload, order_placed
-    ) VALUES (%(created_at)s,%(coin)s, %(is_buy)s, %(size)s, %(leverage)s, %(tif)s,
-              %(decision_action)s, %(thinking)s,
-              %(market_snapshot_id)s, %(account_snapshot_id)s, %(news_snapshot_id)s, %(order_payload)s, %(order_placed)s)
-    RETURNING id;
+    ) VALUES (:created_at,:coin, :is_buy, :size, :leverage, :tif,
+              :decision_action, :thinking,
+              :market_snapshot_id, :account_snapshot_id, :news_snapshot_id, :order_payload, :order_placed);
     """
     params = {
-        "created_at": created_at,
+        "created_at": str(created_at),
         "coin": coin,
-        "is_buy": is_buy,
+        "is_buy": int(is_buy),
         "size": size,
         "leverage": leverage,
         "tif": tif,
@@ -187,13 +187,12 @@ def save_order_attempt(
         "account_snapshot_id": account_snapshot_id,
         "news_snapshot_id": news_snapshot_id,
         "order_payload": json.dumps(sanitized_payload) if sanitized_payload else None,
-        "order_placed": order_placed,
+        "order_placed": int(order_placed) if order_placed is not None else None,
     }
-    with get_pool().connection() as conn:
-        cur = conn.execute(sql, params)
-        order_id = cur.fetchone()["id"]
-        conn.commit()
-        return order_id
+    conn = _get_conn()
+    cur = conn.execute(sql, params)
+    conn.commit()
+    return cur.lastrowid
 
 
 def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]) -> int:
@@ -213,13 +212,12 @@ def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]) -> int:
         captured_at, account_value, total_ntl_pos,
         total_raw_usd, total_margin_used, withdrawable, raw_snapshot
     ) VALUES (
-        %(captured_at)s, %(account_value)s, %(total_ntl_pos)s,
-        %(total_raw_usd)s, %(total_margin_used)s, %(withdrawable)s, %(raw_snapshot)s
-    )
-    RETURNING id;
+        :captured_at, :account_value, :total_ntl_pos,
+        :total_raw_usd, :total_margin_used, :withdrawable, :raw_snapshot
+    );
     """
     params = {
-        "captured_at": captured_at,
+        "captured_at": str(captured_at),
         "account_value": account_value,
         "total_ntl_pos": total_ntl_pos,
         "total_raw_usd": total_raw_usd,
@@ -228,11 +226,10 @@ def save_account_snapshot(captured_at, snapshot: Mapping[str, Any]) -> int:
         "raw_snapshot": json.dumps(sanitized_snapshot),
     }
 
-    with get_pool().connection() as conn:
-        cur = conn.execute(sql, params)
-        account_id = cur.fetchone()["id"]
-        conn.commit()
-        return account_id
+    conn = _get_conn()
+    cur = conn.execute(sql, params)
+    conn.commit()
+    return cur.lastrowid
 
 
 def get_recent_decisions(limit: int = 10) -> list[dict]:
@@ -248,23 +245,22 @@ def get_recent_decisions(limit: int = 10) -> list[dict]:
     LEFT JOIN market_snapshots ms ON oa.market_snapshot_id = ms.id
     LEFT JOIN account_snapshots acs ON oa.account_snapshot_id = acs.id
     ORDER BY oa.created_at DESC
-    LIMIT %(limit)s;
+    LIMIT :limit;
     """
-    with get_pool().connection() as conn:
-        cur = conn.execute(sql, {"limit": limit})
-        rows = cur.fetchall()
+    conn = _get_conn()
+    cur = conn.execute(sql, {"limit": limit})
+    rows = [dict(row) for row in cur.fetchall()]
 
-        # We need to reverse them to be in chronological order for the LLM
-        return list(reversed(rows))
+    # We need to reverse them to be in chronological order for the LLM
+    return list(reversed(rows))
 
 
 def save_news_snapshot(summary: Mapping[str, Any], captured_at) -> int:
     sql = """
-    INSERT INTO news_summaries (captured_at,summary) VALUES (%(captured_at)s,%(summary)s) RETURNING id;
+    INSERT INTO news_summaries (captured_at, summary) VALUES (:captured_at, :summary);
     """
-    params = {"summary": json.dumps(summary), "captured_at": captured_at}
-    with get_pool().connection() as conn:
-        cur = conn.execute(sql, params)
-        news_id = cur.fetchone()["id"]
-        conn.commit()
-        return news_id
+    params = {"summary": json.dumps(summary), "captured_at": str(captured_at)}
+    conn = _get_conn()
+    cur = conn.execute(sql, params)
+    conn.commit()
+    return cur.lastrowid

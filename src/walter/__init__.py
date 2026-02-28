@@ -1,7 +1,7 @@
 """Top-level package for the Walter trading toolkit."""
 
-from .llm_api import LLMAPI, LLMDecision
-from .hyperliquid_api import (
+from .LLM_API import LLMAPI, LLMDecision
+from .hyperliquid_API import (
     get_open_position_details,
     place_order,
     get_withdrawable_balance,
