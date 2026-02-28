@@ -1,14 +1,16 @@
+import logging
 from decimal import Decimal
 from hyperliquid.exchange import Exchange
 from hyperliquid.info import Info
-from hyperliquid.utils import constants
 from eth_account import Account
 import requests
 import json
 
+logger = logging.getLogger(__name__)
 
-def GetOpenPositionDetails(base_url, general_public_key):
 
+def get_open_position_details(base_url: str, general_public_key: str) -> dict:
+    """Fetch clearinghouse state for the given public key."""
     payload = json.dumps(
         {"type": "clearinghouseState", "user": general_public_key, "dex": ""}
     )
@@ -16,7 +18,6 @@ def GetOpenPositionDetails(base_url, general_public_key):
 
     response = requests.request("POST", base_url, headers=headers, data=payload)
     return response.json()
-    # TODO: very long response, check with ML engineer what to keep of it
 
 
 def get_withdrawable_balance(account_snapshot: dict) -> float | None:
@@ -35,27 +36,34 @@ def get_withdrawable_balance(account_snapshot: dict) -> float | None:
         return None
 
 
-def PlaceOrder(base_url, api_wallet_private_key, is_buy, coin, size, leverage, tif):
+def place_order(
+    base_url: str,
+    api_wallet_private_key: str,
+    is_buy: bool,
+    coin: str,
+    size: float,
+    leverage: int,
+    tif: str,
+) -> bool:
+    """Place a market order on Hyperliquid."""
     # =============================================================================
-    # CONFIGURATION - EDIT THESE
+    # CONFIGURATION
     # =============================================================================
-
     ORDER_TYPE = "market"  # "market" or "limit"
     PRICE = 1146  # Used only for limit orders
-    # TODO add stop-loss
+
     # =============================================================================
     # Setup
     # =============================================================================
-
     account = Account.from_key(api_wallet_private_key)
     base_url = base_url.removesuffix("/info")
 
     info = Info(base_url, skip_ws=True)
     exchange = Exchange(account, base_url)
+
     # =============================================================================
     # Get asset metadata
     # =============================================================================
-
     meta = info.meta()
     asset = next((a for a in meta["universe"] if a["name"] == coin), None)
     if not asset:
@@ -63,7 +71,7 @@ def PlaceOrder(base_url, api_wallet_private_key, is_buy, coin, size, leverage, t
 
     size_decimals = asset["szDecimals"]
 
-    def get_tick_size(asset_meta: dict) -> Decimal:
+    def _get_tick_size(asset_meta: dict) -> Decimal:
         raw_tick = asset_meta.get("szDecimals")
         if raw_tick is None:
             px_decimals = asset_meta.get("pxDecimals")
@@ -72,7 +80,7 @@ def PlaceOrder(base_url, api_wallet_private_key, is_buy, coin, size, leverage, t
             raw_tick = Decimal(1).scaleb(-px_decimals)
         return Decimal(str(raw_tick))
 
-    def snap_to_tick(
+    def _snap_to_tick(
         price: float, tick: Decimal, bias: str = "nearest"
     ) -> tuple[Decimal, str | None]:
         px = Decimal(str(price))
@@ -96,7 +104,7 @@ def PlaceOrder(base_url, api_wallet_private_key, is_buy, coin, size, leverage, t
             f"Price {px} snapped {direction} to tick {snapped} (valid choices: {lower}, {upper})",
         )
 
-    tick_size = get_tick_size(asset)
+    tick_size = _get_tick_size(asset)
 
     # Get live prices
     l2 = info.l2_snapshot(coin)
@@ -104,58 +112,50 @@ def PlaceOrder(base_url, api_wallet_private_key, is_buy, coin, size, leverage, t
     ask = float(l2["levels"][1][0]["px"])
     mid = (bid + ask) / 2
 
-    print(f"{'='*60}")
-    print(f"Asset: {coin}")
-    print(f"Bid: ${bid:,.2f}, Ask: ${ask:,.2f}, Mid: ${mid:,.2f}")
-    print(f"{'='*60}\n")
+    logger.info("=" * 60)
+    logger.info("Asset: %s", coin)
+    logger.info("Bid: $%,.2f, Ask: $%,.2f, Mid: $%,.2f", bid, ask, mid)
 
     # =============================================================================
     # Validate size
     # =============================================================================
-
     validated_size = round(size, size_decimals)
 
     # =============================================================================
     # Determine price
     # =============================================================================
-
     if ORDER_TYPE == "market":
         raw_price = ask * 1.02 if is_buy else bid * 0.98
-        validated_price, note = snap_to_tick(
+        validated_price, note = _snap_to_tick(
             raw_price, tick_size, bias="up" if is_buy else "down"
         )
         if note:
-            print(note)
+            logger.info(note)
         order_type_payload = {"market": {}}
     else:
         raw_price = PRICE
-        validated_price, note = snap_to_tick(raw_price, tick_size)
+        validated_price, note = _snap_to_tick(raw_price, tick_size)
         if note:
-            print(f"Limit price adjustment needed -> {note}")
+            logger.info("Limit price adjustment needed -> %s", note)
         order_type_payload = {"limit": {"tif": "Gtc"}}
 
     # =============================================================================
     # Display final order details
     # =============================================================================
-
-    print(f"{'─'*60}")
-    print(f"Final Order Details:")
-    print(f"  Coin:      {coin}")
-    print(f"  Type:      {ORDER_TYPE.upper()}")
-    print(f"  Direction: {'BUY' if is_buy else 'SELL'}")
-    print(f"  Size:      {validated_size} {coin}")
-    print(f"  Price:     ${validated_price:,.2f}")
-    print(f"  Total:     ${validated_size * float(validated_price.real):,.2f}")
-    print(f"{'─'*60}\n")
+    logger.info("-" * 60)
+    logger.info("Final Order Details:")
+    logger.info("  Coin:      %s", coin)
+    logger.info("  Type:      %s", ORDER_TYPE.upper())
+    logger.info("  Direction: %s", "BUY" if is_buy else "SELL")
+    logger.info("  Size:      %s %s", validated_size, coin)
+    logger.info("  Price:     $%,.2f", validated_price)
+    logger.info("  Total:     $%,.2f", validated_size * float(validated_price.real))
 
     # =============================================================================
     # Place order
     # =============================================================================
-
     try:
-        lev = exchange.update_leverage(
-            leverage, coin
-        )  # third arg stays True for cross; pass False for isolated
+        lev = exchange.update_leverage(leverage, coin)
         result = exchange.order(
             coin,
             is_buy,
@@ -164,10 +164,10 @@ def PlaceOrder(base_url, api_wallet_private_key, is_buy, coin, size, leverage, t
             {"limit": {"tif": tif}},
             reduce_only=False,
         )
-        print(lev)
-        print("✅ Order placed successfully!")
-        print(result)
+        logger.info("Leverage update: %s", lev)
+        logger.info("✅ Order placed successfully!")
+        logger.info("Result: %s", result)
         return True
     except Exception as e:
-        print(f"❌ Error placing order: {e}")
+        logger.error("❌ Error placing order: %s", e)
         return False

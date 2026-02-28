@@ -1,8 +1,11 @@
+import logging
 import requests
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
+
+logger = logging.getLogger(__name__)
 
 
 def _post(
@@ -14,7 +17,7 @@ def _post(
     return response.json()
 
 
-def GetMarketSnapshot(
+def get_market_snapshot(
     coin: str, interval: str, base_url, history_hours=1
 ) -> Dict[str, Any]:
     """
@@ -22,7 +25,7 @@ def GetMarketSnapshot(
 
     Returns a dictionary with price, volume, funding and trade information.
     """
-    end_time = int(datetime.utcnow().timestamp() * 1000)
+    end_time = int(datetime.now(timezone.utc).timestamp() * 1000)
     start_time = end_time - history_hours * 3600 * 1000
 
     # ------------------------------------------------
@@ -71,7 +74,7 @@ def GetMarketSnapshot(
 
     # ------------------------------------------------
     # 4. Open interest
-    # # ------------------------------------------------
+    # ------------------------------------------------
     oi_resp = _post(base_url, {"type": "metaAndAssetCtxs", "coin": coin})
     universe = oi_resp[0]["universe"]
     asset_contexts = oi_resp[1]
@@ -89,14 +92,7 @@ def GetMarketSnapshot(
     # Get the corresponding asset context
     asset_ctx = asset_contexts[coin_index]
 
-    # Return relevant information
-
-    openInterest = (asset_ctx.get("openInterest"),)
-    funding = (asset_ctx.get("funding"),)
-    markPx = (asset_ctx.get("markPx"),)
-    dayNtlVlm = (asset_ctx.get("dayNtlVlm"),)
-    midPx = (asset_ctx.get("midPx"),)
-    oraclePx = asset_ctx.get("oraclePx")
+    open_interest = asset_ctx.get("openInterest")
 
     # ------------------------------------------------
     # 5. Recent trades
@@ -104,30 +100,16 @@ def GetMarketSnapshot(
     trades = _post(base_url, {"type": "recentTrades", "coin": coin})
     buy_volume = 0
     sell_volume = 0
-    buy_count = 0
-    sell_count = 0
     for trade in trades:
         size = float(trade["sz"])
-
         if trade["side"] == "B":  # Buy (taker bought)
             buy_volume += size
-            buy_count += 1
         else:  # Sell (taker sold)
             sell_volume += size
-            sell_count += 1
 
     total_volume = buy_volume + sell_volume
-
     buy_pressure = (buy_volume / total_volume * 100) if total_volume > 0 else 0
-    sell_pressure = (sell_volume / total_volume * 100) if total_volume > 0 else 0
-    buy_volume = buy_volume
-    sell_volume = sell_volume
-    buy_count = buy_count
-    sell_count = sell_count
     net_volume = buy_volume - sell_volume
-    volume_delta = (
-        ((buy_volume - sell_volume) / total_volume * 100) if total_volume > 0 else 0
-    )
 
     # ------------------------------------------------
     # 6. Build final snapshot
@@ -141,9 +123,8 @@ def GetMarketSnapshot(
         "funding_rate_avg": round(funding_avg, 6) if funding_avg is not None else None,
         "volatility_24h": round(volatility, 6),
         "volume_24h": round(vol24h, 3),
-        "open_interest": openInterest,
+        "open_interest": open_interest,
         "buy_pressure": buy_pressure,
         "net_volume": net_volume,
     }
-    # TODO: metric below may be added to reponse as per ML engineer request
     return snapshot

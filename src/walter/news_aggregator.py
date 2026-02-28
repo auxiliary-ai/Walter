@@ -1,11 +1,8 @@
-import os
+import logging
 import requests
 from typing import List, Dict, Optional
 from datetime import datetime
-from dotenv import load_dotenv
 
-# Load environment variables
-# Load environment variables
 from walter.config import (
     CP_URL,
     CP_CRYPTOPANIC_KEY,
@@ -18,6 +15,8 @@ from walter.config import (
     CC_FEEDS,
     CC_SORT,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CryptoNewsAPI:
@@ -34,7 +33,7 @@ class CryptoNewsAPI:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching data: {e}")
+            logger.error("Error fetching data: %s", e)
             return {}
 
 
@@ -67,12 +66,12 @@ class CryptoPanicNews(CryptoNewsAPI):
                 try:
                     articles.append(self._format_article(article))
                 except Exception as e:
-                    print(f"[CryptoPanic] Skipping article: {e}")
-            print(f"[CryptoPanic] Fetched {len(articles)} articles")
+                    logger.warning("[CryptoPanic] Skipping article: %s", e)
+            logger.info("[CryptoPanic] Fetched %d articles", len(articles))
             return articles
 
         except Exception as e:
-            print(f"[CryptoPanic] Fatal error: {e}")
+            logger.error("[CryptoPanic] Fatal error: %s", e)
             return []
 
     def _format_article(self, article: Dict) -> Dict:
@@ -89,7 +88,7 @@ class CryptoPanicNews(CryptoNewsAPI):
                 "votes": article.get("votes", {}),
             }
         except Exception as e:
-            print(f"[CryptoPanic] Skipping article: {e}")
+            logger.warning("[CryptoPanic] Skipping article: %s", e)
             return {}
 
 
@@ -116,7 +115,6 @@ class CryptoCompareNews(CryptoNewsAPI):
             feeds: Comma-separated feed names (e.g., 'cointelegraph,coindesk')
             categories: Comma-separated categories (e.g., 'BTC,ETH,Trading')
             sort_order: 'latest' or 'popular'
-            limit: Number of results (max 100)
 
         Returns:
             List of news articles
@@ -133,10 +131,10 @@ class CryptoCompareNews(CryptoNewsAPI):
 
             data = self._make_request(self.BASE_URL, params)
             results = data.get("Data", [])
-            print(f"[CryptoCompare] Fetched {len(results)} articles")
+            logger.info("[CryptoCompare] Fetched %d articles", len(results))
             return [self._format_article(article) for article in results]
         except Exception as e:
-            print(f"[CryptoCompare] Error fetching news: {e}")
+            logger.error("[CryptoCompare] Error fetching news: %s", e)
             return []
 
     def _format_article(self, article: Dict) -> Dict:
@@ -154,7 +152,7 @@ class CryptoCompareNews(CryptoNewsAPI):
                 "source_name": article.get("source", ""),
             }
         except Exception as e:
-            print(f"[CryptoCompare] Skipping article: {e}")
+            logger.warning("[CryptoCompare] Skipping article: %s", e)
             return {}
 
 
@@ -196,7 +194,7 @@ class CryptoNewsAggregator:
 
         # Fetch from CryptoPanic
         if self.cryptopanic_key:
-            print("=== Fetching from CryptoPanic ===")
+            logger.info("=== Fetching from CryptoPanic ===")
             cp = CryptoPanicNews(self.cryptopanic_key)
             cp_news = cp.get_news(
                 currencies=cp_currencies,
@@ -205,24 +203,25 @@ class CryptoNewsAggregator:
             )
             all_news.extend(cp_news)
 
-        # Fetch from CryptoCompare
-        if self.cryptocompare_key or True:  # CryptoCompare works without key
-            print("\n=== Fetching from CryptoCompare ===")
-            cc = CryptoCompareNews(self.cryptocompare_key)
-            cc_news = cc.get_news(
-                categories=cc_categories,
-                feeds=cc_feeds,
-                sort_order=cc_sort,
-            )
-            all_news.extend(cc_news)
+        # CryptoCompare works without an API key, so always fetch
+        logger.info("=== Fetching from CryptoCompare ===")
+        cc = CryptoCompareNews(self.cryptocompare_key)
+        cc_news = cc.get_news(
+            categories=cc_categories,
+            feeds=cc_feeds,
+            sort_order=cc_sort,
+        )
+        all_news.extend(cc_news)
 
         # Sort by published date (newest first)
         all_news.sort(key=lambda x: x.get("published_at", ""), reverse=True)
 
         return all_news
 
-    def getAggregatedNews():
-        print("\n=== Aggregated News ===")
+    @staticmethod
+    def get_aggregated_news():
+        """Convenience method to fetch aggregated news using config values."""
+        logger.info("=== Aggregated News ===")
         aggregator = CryptoNewsAggregator(
             cryptopanic_key=CP_CRYPTOPANIC_KEY, cryptocompare_key=CC_CRYPTOCOMPARE_KEY
         )

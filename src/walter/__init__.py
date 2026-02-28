@@ -1,17 +1,21 @@
 """Top-level package for the Walter trading toolkit."""
 
-from .LLM_API import LLMAPI, LLMDecision
-from .hyperliquid_API import GetOpenPositionDetails, PlaceOrder, get_withdrawable_balance
-from .market_data import GetMarketSnapshot
-from .news_API_aggregator import CryptoNewsAggregator
+from .llm_api import LLMAPI, LLMDecision
+from .hyperliquid_api import (
+    get_open_position_details,
+    place_order,
+    get_withdrawable_balance,
+)
+from .market_data import get_market_snapshot
+from .news_aggregator import CryptoNewsAggregator
 
 __all__ = [
     "LLMAPI",
     "LLMDecision",
-    "GetOpenPositionDetails",
-    "PlaceOrder",
+    "get_open_position_details",
+    "place_order",
     "get_withdrawable_balance",
-    "GetMarketSnapshot",
+    "get_market_snapshot",
     "CryptoNewsAggregator",
 ]
 
