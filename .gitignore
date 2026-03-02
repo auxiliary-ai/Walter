@@ -19,3 +19,8 @@ __pycache__
 
 #Egg info
 *.egg-info/
+
+#SQLite database
+walter.db
+walter.db-shm
+walter.db-wal
