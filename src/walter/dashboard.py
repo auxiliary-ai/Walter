@@ -192,6 +192,11 @@ class TradingDashboard:
                             "timestamp": marker_ts,
                             "action": action.lower(),
                             "price": marker_price,
+                            "thinking": getattr(decision, "thinking", None),
+                            "llm_input": getattr(decision, "llm_input", None),
+                            "size": to_float(getattr(decision, "size", None)),
+                            "leverage": getattr(decision, "leverage", None),
+                            "tif": getattr(decision, "tif", None),
                         }
                     )
                     self._last_marker_key = marker_key
@@ -350,6 +355,11 @@ class TradingDashboard:
                             "size": decision_size,
                             "leverage": decision_leverage,
                             "thinking": decision_thinking,
+                            "llm_input": (
+                                str(getattr(self.decision, "llm_input", "n/a"))
+                                if self.decision is not None
+                                else "n/a"
+                            ),
                         },
                         "news_titles": self.major_titles[:5],
                     },

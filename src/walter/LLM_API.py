@@ -40,6 +40,7 @@ class LLMDecision:
     size: float | None
     leverage: int | None
     tif: str | None
+    llm_input: str | None
 
 
 class LLMAPI:
@@ -126,7 +127,7 @@ class LLMAPI:
     # Response parsing
     # ------------------------------------------------------------------
 
-    def decide(self, response: Any) -> LLMDecision:
+    def decide(self, response: Any, llm_input: str | None = None) -> LLMDecision:
         """Converts an arbitrary LLM response into an actionable decision."""
         raw_response = str(response)
         response_data: dict = {}
@@ -171,6 +172,7 @@ class LLMAPI:
             size=float(size) if size is not None else None,
             leverage=int(leverage) if leverage is not None else None,
             tif=tif,
+            llm_input=llm_input,
         )
 
     # ------------------------------------------------------------------
@@ -186,7 +188,7 @@ class LLMAPI:
         """Invokes OpenRouter with generated prompt and parses the response."""
         prompt = self.get_prompt(market_snapshot, open_positions, news_titles)
         response = self._call_openrouter(prompt)
-        return self.decide(response)
+        return self.decide(response, llm_input=prompt)
 
     # ------------------------------------------------------------------
     # OpenRouter HTTP
