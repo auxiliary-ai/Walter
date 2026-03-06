@@ -20,6 +20,7 @@ Walter is an automated trading assistant that pulls real-time market context fro
 - Feeds market data, account state, news summaries, and recent decision history to a LLM that returns a structured JSON decision (action, size, leverage, TIF).
 - Places market or limit orders through the official Hyperliquid SDK with automatic tick-size snapping and leverage updates.
 - Persists market snapshots, account snapshots, news summaries, and order attempts to a local SQLite database for auditability and review.
+- Serves a live localhost web dashboard with price/action charts, account metrics, news context, and decision traceability.
 - Runs as a simple scheduler loop (configurable interval) so you can monitor output and interrupt with `Ctrl+C`.
 
 ## Requirements
@@ -38,7 +39,11 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
-> **Note:** Some dependencies (`sentence-transformers`, `scikit-learn`) are listed in `requirements.txt` but not in `pyproject.toml`. If you need them, also run `pip install -r requirements.txt`.
+If you prefer the requirements file:
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Configuration
 
@@ -83,10 +88,22 @@ python main.py
 
 The script prints each market snapshot, open position payload, news summaries, the LLM decision (including its reasoning), and order status. Stop the loop with `Ctrl+C`.
 
+Walter also serves a browser dashboard on localhost by default:
+- URL: `http://127.0.0.1:8765`
+- API: `http://127.0.0.1:8765/api/state`
+
+To configure/disable the web dashboard:
+
+```bash
+WALTER_ENABLE_WEB_DASHBOARD=0 python main.py
+WALTER_WEB_HOST=127.0.0.1 WALTER_WEB_PORT=9000 python main.py
+```
+
 ## Development
 
 - Core modules in `src/walter/`:
   - `config.py` — centralised configuration and secret loading.
+  - `dashboard.py` — runtime state model + terminal/web dashboard publishing.
   - `market_data.py` — Hyperliquid market snapshot builder.
   - `LLM_API.py` — OpenRouter prompt construction, API call, and response parsing.
   - `hyperliquid_API.py` — position queries and order placement.
