@@ -6,12 +6,12 @@ for dotenv_file in (".env.local", ".env"):
     load_dotenv(dotenv_path=dotenv_file, override=False)
 
 # Configuration Constants
-SCHEDULER_INTERVAL_SECONDS = 4
+SCHEDULER_INTERVAL_SECONDS = 900
 COIN = "ETH"
 HYPERLIQUID_URL = "https://api.hyperliquid-testnet.xyz/info"
 
 # LLM Configuration
-LLM_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+LLM_MODEL = "openai/gpt-5.4"
 LLM_HISTORY_LENGTH = 5
 
 # CryptoPanic Configuration

@@ -39,6 +39,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S%z",
+    handlers=[
+        logging.FileHandler("walter.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -58,7 +62,7 @@ llm_api = LLMAPI(
 initialize_database()
 
 web_dashboard_enabled = os.getenv("WALTER_ENABLE_WEB_DASHBOARD", "1") != "0"
-web_dashboard_host = os.getenv("WALTER_WEB_HOST", "127.0.0.1")
+web_dashboard_host = os.getenv("WALTER_WEB_HOST", "localhost")
 try:
     web_dashboard_port = int(os.getenv("WALTER_WEB_PORT", "8765"))
 except ValueError:
@@ -117,7 +121,7 @@ def main() -> None:
     if web_dashboard is not None:
         dashboard.add_event(f"Web dashboard: {web_dashboard.url}")
     dashboard.set_state(stage="initializing")
-    dashboard.render()
+    logger.info("Scheduler initialized.")
     cycle = 0
 
     try:
@@ -131,24 +135,25 @@ def main() -> None:
                     current_time=current_time,
                     order_status="pending",
                 )
-                dashboard.render()
+                logger.info("--- Starting Cycle %d ---", cycle)
+                logger.info("Collecting news and market data...")
 
                 news = CryptoNewsAggregator.get_aggregated_news()
                 summary = get_summaries_from_news(news)
                 major_titles = [n.get("title", "") for n in summary.get("major_narratives", [])]
                 dashboard.set_state(major_titles=major_titles, stage="collecting_market")
                 dashboard.add_event(f"News processed ({len(major_titles)} major narratives)")
-                dashboard.render()
+                logger.info("News processed: %d major narratives found.", len(major_titles))
 
-                market_snapshot = get_market_snapshot(coin, "1h", hyperliquid_url, 24)
+                market_snapshot = get_market_snapshot(coin, interval, hyperliquid_url, 24)
                 dashboard.set_state(market_snapshot=market_snapshot, stage="collecting_account")
-                dashboard.render()
+                logger.info("Market data fetched. Current Price: $%.2f", market_snapshot.get("current_price", 0))
 
                 account_snapshot = get_open_position_details(
                     hyperliquid_url, general_public_key
                 )
                 dashboard.set_state(account_snapshot=account_snapshot, stage="llm_decision")
-                dashboard.render()
+                logger.info("Account data fetched. Requesting LLM decision...")
 
                 decision = llm_api.decide_from_market(
                     market_snapshot, account_snapshot, major_titles
@@ -157,7 +162,13 @@ def main() -> None:
                 dashboard.add_event(
                     f"Decision={decision.action.upper()} size={decision.size} lev={decision.leverage}"
                 )
-                dashboard.render()
+                logger.info(
+                    "Decision Ready: %s | Size: %s | Lev: %s",
+                    decision.action.upper(),
+                    decision.size,
+                    decision.leverage,
+                )
+                logger.info("LLM Thinking: %s", decision.thinking)
 
                 if decision.action == "hold":
                     _persist_cycle(
@@ -175,13 +186,13 @@ def main() -> None:
                         available_balance=None,
                     )
                     dashboard.add_event("HOLD: no order placed", current_time)
-                    dashboard.render()
+                    logger.info("Action is HOLD. No order placed. Waiting for next cycle.")
                     time.sleep(interval)
                     continue
 
                 if decision.action == "close":
                     dashboard.set_state(stage="closing_position", order_status="closing")
-                    dashboard.render()
+                    logger.info("Action is CLOSE. Attempting to close open position...")
                     closed = close_position(
                         hyperliquid_url,
                         api_wallet_private_key,
@@ -204,6 +215,7 @@ def main() -> None:
                             available_balance=None,
                         )
                         dashboard.add_event(f"CLOSE: {coin} position closed", current_time)
+                        logger.info("Position closed successfully.")
                     else:
                         dashboard.set_state(
                             stage="cycle_complete",
@@ -212,7 +224,7 @@ def main() -> None:
                             available_balance=None,
                         )
                         dashboard.add_event("CLOSE: no position to close or failed", current_time)
-                    dashboard.render()
+                        logger.info("CLOSE failed or no position to close.")
                     time.sleep(interval)
                     continue
 
@@ -250,7 +262,6 @@ def main() -> None:
                         order_placed=False,
                         decision_action_override=f"{decision.action}_invalid_payload",
                     )
-                    dashboard.render()
                     time.sleep(interval)
                     continue
 
@@ -282,7 +293,6 @@ def main() -> None:
                     required_margin=required_margin,
                     available_balance=available,
                 )
-                dashboard.render()
 
                 if available is None or required_margin > available or order_args["size"] <= 0:
                     available_str = f"${available:,.2f}" if available is not None else "unknown"
@@ -313,12 +323,11 @@ def main() -> None:
                         ),
                         current_time,
                     )
-                    dashboard.render()
                     time.sleep(interval)
                     continue
 
                 dashboard.set_state(stage="placing_order", order_status="submitting_order")
-                dashboard.render()
+                logger.info("Placing %s order for %s %s @ %sx lev", decision.action.upper(), decision.size, coin, decision.leverage)
                 order_placed = place_order(
                     hyperliquid_url,
                     api_wallet_private_key,
@@ -349,25 +358,24 @@ def main() -> None:
                         ),
                         current_time,
                     )
+                    logger.info("Order placed successfully.")
                 else:
                     dashboard.set_state(
                         stage="cycle_complete",
                         order_status="order_failed",
                     )
                     dashboard.add_event("Order placement failed", current_time)
-                dashboard.render()
+                    logger.error("Order placement failed.")
                 time.sleep(interval)
             except Exception as e:
                 logger.error("Loop error: %s", e, exc_info=True)
                 dashboard.add_event(f"Loop error: {e}")
                 dashboard.set_state(stage="error_state", order_status="error")
-                dashboard.render()
                 logger.info("Retrying in %d seconds", interval)
                 time.sleep(interval)
     except KeyboardInterrupt:
         dashboard.add_event("Scheduler stopped by user")
         dashboard.set_state(stage="stopped", order_status="stopped")
-        dashboard.render()
         logger.info("Scheduler stopped by user.")
     finally:
         if web_dashboard is not None:

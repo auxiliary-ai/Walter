@@ -114,7 +114,7 @@ def place_order(
 
     logger.info("=" * 60)
     logger.info("Asset: %s", coin)
-    logger.info("Bid: $%,.2f, Ask: $%,.2f, Mid: $%,.2f", bid, ask, mid)
+    logger.info(f"Bid: ${bid:,.2f}, Ask: ${ask:,.2f}, Mid: ${mid:,.2f}")
 
     # =============================================================================
     # Validate size
@@ -148,8 +148,8 @@ def place_order(
     logger.info("  Type:      %s", ORDER_TYPE.upper())
     logger.info("  Direction: %s", "BUY" if is_buy else "SELL")
     logger.info("  Size:      %s %s", validated_size, coin)
-    logger.info("  Price:     $%,.2f", validated_price)
-    logger.info("  Total:     $%,.2f", validated_size * float(validated_price.real))
+    logger.info(f"  Price:     ${validated_price:,.2f}")
+    logger.info(f"  Total:     ${validated_size * float(validated_price.real):,.2f}")
 
     # =============================================================================
     # Place order

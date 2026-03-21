@@ -143,6 +143,7 @@ class TradingDashboard:
     def add_event(self, message: str, timestamp: datetime | None = None) -> None:
         ts = (timestamp or datetime.now(timezone.utc)).strftime("%H:%M:%S")
         self.events.appendleft(f"{ts} | {message}")
+        self.render()
 
     def set_state(
         self,
@@ -206,6 +207,7 @@ class TradingDashboard:
             self.required_margin = required_margin
         if available_balance is not self._UNSET:
             self.available_balance = available_balance
+        self.render()
 
     def render(self) -> None:
         columns = shutil.get_terminal_size((140, 40)).columns
@@ -314,12 +316,6 @@ class TradingDashboard:
             rows.extend(list(self.events))
         else:
             rows.append("no events yet")
-
-        if os.name == "nt":
-            os.system("cls")
-            print("\n".join(rows), flush=True)
-        else:
-            print(f"\033[2J\033[H{'\n'.join(rows)}", flush=True)
 
         if self.web_dashboard is not None:
             self.web_dashboard.update(
