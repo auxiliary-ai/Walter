@@ -114,11 +114,20 @@ def get_market_snapshot(
     # ------------------------------------------------
     # 6. Build final snapshot
     # ------------------------------------------------
+    # Trend signal from EMA crossover
+    if ema10 > ema20:
+        trend_signal = "bullish"
+    elif ema10 < ema20:
+        trend_signal = "bearish"
+    else:
+        trend_signal = "neutral"
+
     snapshot = {
         "coin": coin,
         "current_price": current_price,
         "ema10": round(ema10, 3),
         "ema20": round(ema20, 3),
+        "trend_signal": trend_signal,
         "funding_rate_latest": funding_latest,
         "funding_rate_avg": round(funding_avg, 6) if funding_avg is not None else None,
         "volatility_24h": round(volatility, 6),

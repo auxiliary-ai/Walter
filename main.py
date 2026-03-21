@@ -24,6 +24,7 @@ from walter.db_utils import (
     save_order_attempt,
 )
 from walter.hyperliquid_API import (
+    close_position,
     get_open_position_details,
     get_withdrawable_balance,
     place_order,
@@ -139,7 +140,7 @@ def main() -> None:
                 dashboard.add_event(f"News processed ({len(major_titles)} major narratives)")
                 dashboard.render()
 
-                market_snapshot = get_market_snapshot(coin, "1h", hyperliquid_url, 6)
+                market_snapshot = get_market_snapshot(coin, "1h", hyperliquid_url, 24)
                 dashboard.set_state(market_snapshot=market_snapshot, stage="collecting_account")
                 dashboard.render()
 
@@ -174,6 +175,43 @@ def main() -> None:
                         available_balance=None,
                     )
                     dashboard.add_event("HOLD: no order placed", current_time)
+                    dashboard.render()
+                    time.sleep(interval)
+                    continue
+
+                if decision.action == "close":
+                    dashboard.set_state(stage="closing_position", order_status="closing")
+                    dashboard.render()
+                    closed = close_position(
+                        hyperliquid_url,
+                        api_wallet_private_key,
+                        general_public_key,
+                        coin,
+                    )
+                    _persist_cycle(
+                        current_time,
+                        account_snapshot,
+                        market_snapshot,
+                        major_titles,
+                        decision,
+                        order_placed=closed,
+                    )
+                    if closed:
+                        dashboard.set_state(
+                            stage="cycle_complete",
+                            order_status="position_closed",
+                            required_margin=None,
+                            available_balance=None,
+                        )
+                        dashboard.add_event(f"CLOSE: {coin} position closed", current_time)
+                    else:
+                        dashboard.set_state(
+                            stage="cycle_complete",
+                            order_status="close_failed_or_no_position",
+                            required_margin=None,
+                            available_balance=None,
+                        )
+                        dashboard.add_event("CLOSE: no position to close or failed", current_time)
                     dashboard.render()
                     time.sleep(interval)
                     continue
@@ -220,6 +258,25 @@ def main() -> None:
                 current_price = market_snapshot.get("current_price", 0)
                 leverage = decision.leverage if decision.leverage else 1
                 required_margin = (decision.size * current_price) / leverage
+
+                # Auto-scale size down if margin exceeds available balance
+                if available is not None and current_price > 0 and required_margin > available:
+                    max_size = (available * 0.95 * leverage) / current_price
+                    logger.info(
+                        "Auto-scaling %s size from %.6f to %.6f (margin $%.2f > available $%.2f)",
+                        decision.action.upper(),
+                        decision.size,
+                        max_size,
+                        required_margin,
+                        available,
+                    )
+                    order_args["size"] = max_size
+                    required_margin = (max_size * current_price) / leverage
+                    dashboard.add_event(
+                        f"Size auto-scaled to {fmt_num(max_size, 5)} (balance limit)",
+                        current_time,
+                    )
+
                 dashboard.set_state(
                     stage="risk_check",
                     required_margin=required_margin,
@@ -227,7 +284,7 @@ def main() -> None:
                 )
                 dashboard.render()
 
-                if available is None or required_margin > available:
+                if available is None or required_margin > available or order_args["size"] <= 0:
                     available_str = f"${available:,.2f}" if available is not None else "unknown"
                     logger.warning(
                         "Order rejected (%s): required margin $%,.2f exceeds available balance %s",
@@ -265,9 +322,9 @@ def main() -> None:
                 order_placed = place_order(
                     hyperliquid_url,
                     api_wallet_private_key,
-                    decision.action == "buy",
+                    order_args["is_buy"],
                     coin,
-                    decision.size,
+                    order_args["size"],
                     decision.leverage,
                     decision.tif,
                 )

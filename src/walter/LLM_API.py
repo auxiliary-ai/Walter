@@ -21,26 +21,30 @@ SYSTEM_PROMPT = (
     "You will be evaluated exclusively on the P&L generated between NOW and the "
     "next decision cycle — every decision you make must target the highest expected "
     "profit within that window.\n"
-    "Given market data, account state, news headlines, and recent decision history, "
-    "decide whether to BUY, SELL, or HOLD.\n"
+    "Given market data, account state (including any open position), news headlines, "
+    "and recent decision history, decide whether to BUY, SELL, HOLD, or CLOSE.\n"
     "Strategy guidelines:\n"
     "- BUY when you expect price to rise enough within {interval}s to yield a net "
     "profit after fees. Size your position to maximise expected dollar gain.\n"
     "- SELL when you expect price to drop within {interval}s. Size accordingly.\n"
+    "- CLOSE when you have an open position and want to realise profit (take-profit) "
+    "or cut losses (stop-loss). The full position will be closed automatically.\n"
     "- HOLD only when neither direction offers a high-probability profitable trade "
-    "within {interval}s, or when the withdrawable balance is too low.\n"
+    "within {interval}s, or when the withdrawable balance is too low and no "
+    "position is open to close.\n"
     "Risk rules:\n"
     "- Never propose an order whose required margin (size × price / leverage) "
-    "exceeds the withdrawable balance. If balance is too low, respond HOLD.\n"
+    "exceeds the withdrawable balance. If balance is too low, respond HOLD or CLOSE.\n"
     "- Use leverage aggressively when conviction is high, conservatively when it "
     "is low — always aim for the best risk-adjusted return within {interval}s.\n"
     "- Factor in recent decision history to avoid doubling down on losing streaks "
     "and to compound winning momentum.\n"
-    "- Positive news may support BUY; negative news may support SELL or HOLD.\n"
+    "- Positive news may support BUY; negative news may support SELL, HOLD, or CLOSE.\n"
+    "- If the open position has unrealised losses and you expect them to worsen, CLOSE.\n"
     "Respond ONLY with valid JSON — no markdown, no commentary:\n"
-    '{{"THINKING":"<1 sentence>","ACTION":"BUY|SELL|HOLD",'
+    '{{"THINKING":"<1 sentence>","ACTION":"BUY|SELL|HOLD|CLOSE",'
     '"ACTION_DETAILS":{{"size":<float>,"leverage":<int>,"tif":"Ioc"}}}}\n'
-    "Omit ACTION_DETAILS when ACTION is HOLD."
+    "Omit ACTION_DETAILS when ACTION is HOLD or CLOSE."
 ).format(interval=SCHEDULER_INTERVAL_SECONDS)
 
 
@@ -101,18 +105,70 @@ class LLMAPI:
     # ------------------------------------------------------------------
 
     def _build_history_block(self) -> str:
-        """Compact history table: price | withdrawable | action | thinking."""
+        """Compact history table with price deltas for P&L feedback."""
         rows = get_recent_decisions(self.history_length)
         if not rows:
             return ""
 
         lines = ["Recent decisions (oldest → newest):"]
+        prev_price = None
         for i, r in enumerate(rows, 1):
-            price = r.get("current_price", "?")
+            price = r.get("current_price")
             avail = r.get("withdrawable", "?")
             action = r.get("decision_action", "?")
             thought = r.get("thinking") or "-"
-            lines.append(f"  {i}. price={price} avail={avail} → {action} ({thought})")
+
+            # Price delta vs previous decision
+            if price is not None and prev_price is not None and prev_price != 0:
+                delta_pct = (price - prev_price) / prev_price * 100
+                delta_str = f"Δ={delta_pct:+.2f}%"
+            else:
+                delta_str = "Δ=n/a"
+
+            lines.append(
+                f"  {i}. price={price or '?'} {delta_str} avail={avail} → {action} ({thought})"
+            )
+            if price is not None:
+                prev_price = price
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_account_summary(account_snapshot: dict) -> str:
+        """Format the raw clearinghouse state into a concise, LLM-friendly string."""
+        margin = account_snapshot.get("marginSummary", {})
+        account_value = margin.get("accountValue", "?")
+        withdrawable = account_snapshot.get("withdrawable", "?")
+
+        lines = [f"Account: value={account_value} withdrawable={withdrawable}"]
+
+        # Format each open position
+        positions = account_snapshot.get("assetPositions", [])
+        if not positions:
+            lines.append("Open positions: none")
+        else:
+            for ap in positions:
+                pos = ap.get("position", ap)
+                coin = pos.get("coin", "?")
+                szi = pos.get("szi", "0")
+                entry_px = pos.get("entryPx", "?")
+                unrealised_pnl = pos.get("unrealizedPnl", "?")
+                leverage_info = pos.get("leverage", {})
+                lev_val = leverage_info.get("value", "?") if isinstance(leverage_info, dict) else leverage_info
+                liq_px = pos.get("liquidationPx", "?")
+
+                try:
+                    size_f = float(szi)
+                    side = "LONG" if size_f > 0 else "SHORT" if size_f < 0 else "FLAT"
+                    size_str = f"{abs(size_f)}"
+                except (ValueError, TypeError):
+                    side = "?"
+                    size_str = str(szi)
+
+                lines.append(
+                    f"  Position: {side} {size_str} {coin} @ entry={entry_px} "
+                    f"unrealised_pnl={unrealised_pnl} lev={lev_val} liq={liq_px}"
+                )
+
         return "\n".join(lines)
 
     def get_prompt(
@@ -129,7 +185,11 @@ class LLMAPI:
             parts.append(history)
 
         parts.append(f"Market: {market_snapshot}")
-        parts.append(f"Account: {open_positions}")
+
+        if isinstance(open_positions, dict):
+            parts.append(self._format_account_summary(open_positions))
+        else:
+            parts.append(f"Account: {open_positions}")
 
         if news_titles:
             parts.append(f"News: {', '.join(news_titles)}")
@@ -176,8 +236,10 @@ class LLMAPI:
             normalized_action = "buy"
         elif action in ("SELL", "SHORT"):
             normalized_action = "sell"
+        elif action == "CLOSE":
+            normalized_action = "close"
 
-        execute = normalized_action != "hold"
+        execute = normalized_action not in ("hold",)
 
         return LLMDecision(
             action=normalized_action,

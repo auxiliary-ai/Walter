@@ -58,8 +58,8 @@ def place_order(
     account = Account.from_key(api_wallet_private_key)
     base_url = base_url.removesuffix("/info")
 
-    info = Info(base_url, skip_ws=True)
-    exchange = Exchange(account, base_url)
+    info = Info(base_url, skip_ws=True, spot_meta={"universe": [], "tokens": []})
+    exchange = Exchange(account, base_url, spot_meta={"universe": [], "tokens": []})
 
     # =============================================================================
     # Get asset metadata
@@ -170,4 +170,81 @@ def place_order(
         return True
     except Exception as e:
         logger.error("❌ Error placing order: %s", e)
+        return False
+
+
+def close_position(
+    base_url: str,
+    api_wallet_private_key: str,
+    general_public_key: str,
+    coin: str,
+) -> bool:
+    """Close the entire open position for *coin* using a reduce-only market order.
+
+    Returns True if the close order was placed, False if there was no position
+    to close or the order failed.
+    """
+    # 1. Check for an existing position
+    account = get_open_position_details(base_url, general_public_key)
+    asset_positions = account.get("assetPositions", [])
+    position = None
+    for ap in asset_positions:
+        item = ap.get("position", ap)
+        if item.get("coin") == coin:
+            position = item
+            break
+
+    if position is None:
+        logger.info("No open %s position to close.", coin)
+        return False
+
+    szi = float(position.get("szi", 0))
+    if szi == 0:
+        logger.info("Open %s position has zero size; nothing to close.", coin)
+        return False
+
+    # szi > 0 means long → we SELL to close; szi < 0 means short → we BUY to close
+    is_buy = szi < 0
+    close_size = abs(szi)
+
+    # 2. Setup exchange connection
+    acct = Account.from_key(api_wallet_private_key)
+    exchange_base = base_url.removesuffix("/info")
+    info = Info(exchange_base, skip_ws=True, spot_meta={"universe": [], "tokens": []})
+    exchange = Exchange(acct, exchange_base, spot_meta={"universe": [], "tokens": []})
+
+    # 3. Get asset metadata for size rounding
+    meta = info.meta()
+    asset = next((a for a in meta["universe"] if a["name"] == coin), None)
+    if not asset:
+        logger.error("Coin %s not found in universe; cannot close.", coin)
+        return False
+
+    size_decimals = asset["szDecimals"]
+    validated_size = round(close_size, size_decimals)
+
+    # 4. Price — use aggressive slippage to guarantee fill
+    l2 = info.l2_snapshot(coin)
+    bid = float(l2["levels"][0][0]["px"])
+    ask = float(l2["levels"][1][0]["px"])
+    price = ask * 1.02 if is_buy else bid * 0.98
+
+    logger.info("-" * 60)
+    logger.info("Closing %s position: %s %.6f @ ~$%.2f",
+                coin, "BUY-to-close" if is_buy else "SELL-to-close",
+                validated_size, price)
+
+    try:
+        result = exchange.order(
+            coin,
+            is_buy,
+            validated_size,
+            price,
+            {"limit": {"tif": "Ioc"}},
+            reduce_only=True,
+        )
+        logger.info("✅ Close order placed: %s", result)
+        return True
+    except Exception as e:
+        logger.error("❌ Error closing position: %s", e)
         return False

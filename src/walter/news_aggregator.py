@@ -10,10 +10,9 @@ from walter.config import (
     CP_FILTER,
     CP_KIND,
     CC_URL,
-    CC_CRYPTOCOMPARE_KEY,
     CC_CATEGORIES,
-    CC_FEEDS,
-    CC_SORT,
+    CC_LANG,
+    CC_LIMIT,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,41 +92,37 @@ class CryptoPanicNews(CryptoNewsAPI):
 
 
 class CryptoCompareNews(CryptoNewsAPI):
-    """Fetch news from CryptoCompare API."""
+    """Fetch news from CoinDesk / CryptoCompare data API."""
 
     BASE_URL = CC_URL
 
-    def __init__(self, api_key: Optional[str] = None):
-        super().__init__(api_key)
-        if api_key:
-            self.session.headers.update({"authorization": f"Apikey {api_key}"})
+    def __init__(self):
+        super().__init__(api_key=None)
+        self.session.headers.update(
+            {"Content-type": "application/json; charset=UTF-8"}
+        )
 
     def get_news(
         self,
-        feeds: Optional[str] = None,
         categories: Optional[str] = None,
-        sort_order: Optional[str] = None,
+        lang: str = "EN",
+        limit: int = 10,
     ) -> List[Dict]:
         """
-        Fetch news from CryptoCompare.
+        Fetch news from CoinDesk data API.
 
         Args:
-            feeds: Comma-separated feed names (e.g., 'cointelegraph,coindesk')
-            categories: Comma-separated categories (e.g., 'BTC,ETH,Trading')
-            sort_order: 'latest' or 'popular'
+            categories: Comma-separated categories (e.g., 'ETH')
+            lang: Language code (default 'EN')
+            limit: Max articles to return
 
         Returns:
             List of news articles
         """
         try:
-            params = {}
-
-            if feeds:
-                params["feeds"] = feeds
+            params: Dict = {"lang": lang, "limit": limit}
             if categories:
                 params["categories"] = categories
-            if sort_order:
-                params["sortOrder"] = sort_order
 
             data = self._make_request(self.BASE_URL, params)
             results = data.get("Data", [])
@@ -138,18 +133,23 @@ class CryptoCompareNews(CryptoNewsAPI):
             return []
 
     def _format_article(self, article: Dict) -> Dict:
-        """Format CryptoCompare article data."""
+        """Format CoinDesk article data (uppercase field names)."""
         try:
+            source_data = article.get("SOURCE_DATA", {})
+            category_data = article.get("CATEGORY_DATA", [])
+            categories = [c.get("CATEGORY", "") for c in category_data]
+
             return {
                 "source": "CryptoCompare",
-                "title": article.get("title", ""),
-                "url": article.get("url", ""),
+                "title": article.get("TITLE", ""),
+                "url": article.get("URL", ""),
                 "published_at": datetime.fromtimestamp(
-                    article.get("published_on", 0)
+                    article.get("PUBLISHED_ON", 0)
                 ).isoformat(),
-                "body": article.get("body") or "",
-                "categories": article.get("categories", "").split("|"),
-                "source_name": article.get("source", ""),
+                "body": article.get("BODY") or "",
+                "categories": categories,
+                "source_name": source_data.get("NAME", ""),
+                "sentiment": article.get("SENTIMENT", ""),
             }
         except Exception as e:
             logger.warning("[CryptoCompare] Skipping article: %s", e)
@@ -162,10 +162,8 @@ class CryptoNewsAggregator:
     def __init__(
         self,
         cryptopanic_key: Optional[str] = None,
-        cryptocompare_key: Optional[str] = None,
     ):
         self.cryptopanic_key = cryptopanic_key
-        self.cryptocompare_key = cryptocompare_key
 
     def get_all_news(
         self,
@@ -173,8 +171,8 @@ class CryptoNewsAggregator:
         cp_filter: str,
         cp_kind: str,
         cc_categories: Optional[str],
-        cc_feeds: Optional[str],
-        cc_sort: str,
+        cc_lang: str = "EN",
+        cc_limit: int = 10,
     ) -> List[Dict]:
         """
         Fetch news from all configured sources.
@@ -183,9 +181,9 @@ class CryptoNewsAggregator:
             cp_currencies: CryptoPanic currencies (e.g., 'BTC,ETH')
             cp_filter: CryptoPanic filter type
             cp_kind: CryptoPanic kind
-            cc_categories: CryptoCompare categories (e.g., 'BTC,ETH')
-            cc_feeds: CryptoCompare feeds (e.g., 'cointelegraph,coindesk')
-            cc_sort: CryptoCompare sort order ('latest' or 'popular')
+            cc_categories: CoinDesk categories (e.g., 'ETH')
+            cc_lang: CoinDesk language code
+            cc_limit: CoinDesk max articles
 
         Returns:
             Combined list of news articles
@@ -203,13 +201,13 @@ class CryptoNewsAggregator:
             )
             all_news.extend(cp_news)
 
-        # CryptoCompare works without an API key, so always fetch
-        logger.info("=== Fetching from CryptoCompare ===")
-        cc = CryptoCompareNews(self.cryptocompare_key)
+        # Fetch from CoinDesk / CryptoCompare (no API key needed)
+        logger.info("=== Fetching from CoinDesk ===")
+        cc = CryptoCompareNews()
         cc_news = cc.get_news(
             categories=cc_categories,
-            feeds=cc_feeds,
-            sort_order=cc_sort,
+            lang=cc_lang,
+            limit=cc_limit,
         )
         all_news.extend(cc_news)
 
@@ -223,14 +221,14 @@ class CryptoNewsAggregator:
         """Convenience method to fetch aggregated news using config values."""
         logger.info("=== Aggregated News ===")
         aggregator = CryptoNewsAggregator(
-            cryptopanic_key=CP_CRYPTOPANIC_KEY, cryptocompare_key=CC_CRYPTOCOMPARE_KEY
+            cryptopanic_key=CP_CRYPTOPANIC_KEY,
         )
         all_news = aggregator.get_all_news(
             cp_currencies=CP_CURRENCIES,
             cp_filter=CP_FILTER,
             cp_kind=CP_KIND,
             cc_categories=CC_CATEGORIES,
-            cc_feeds=CC_FEEDS,
-            cc_sort=CC_SORT,
+            cc_lang=CC_LANG,
+            cc_limit=CC_LIMIT,
         )
         return all_news
