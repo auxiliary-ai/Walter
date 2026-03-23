@@ -9,6 +9,41 @@ import json
 logger = logging.getLogger(__name__)
 
 
+def _get_tick_size(asset_meta: dict) -> Decimal:
+    raw_tick = asset_meta.get("szDecimals")
+    if raw_tick is None:
+        px_decimals = asset_meta.get("pxDecimals")
+        if px_decimals is None:
+            raise ValueError(f"No tick size info for {asset_meta['name']}")
+        raw_tick = Decimal(1).scaleb(-px_decimals)
+    return Decimal(str(raw_tick))
+
+
+def _snap_to_tick(
+    price: float, tick: Decimal, bias: str = "nearest"
+) -> tuple[Decimal, str | None]:
+    px = Decimal(str(price))
+    remainder = px % tick
+    if remainder == 0:
+        return px, None
+
+    lower = (px // tick) * tick
+    upper = lower + tick
+
+    if bias == "up":
+        return upper, f"Price {px} rounded up to next tick {upper}"
+    if bias == "down":
+        return lower, f"Price {px} rounded down to previous tick {lower}"
+
+    midpoint = lower + tick / 2
+    snapped = upper if px >= midpoint else lower
+    direction = "up" if snapped == upper else "down"
+    return (
+        snapped,
+        f"Price {px} snapped {direction} to tick {snapped} (valid choices: {lower}, {upper})",
+    )
+
+
 def get_open_position_details(base_url: str, general_public_key: str) -> dict:
     """Fetch clearinghouse state for the given public key."""
     payload = json.dumps(
@@ -70,39 +105,6 @@ def place_order(
         raise ValueError(f"Coin {coin} not found")
 
     size_decimals = asset["szDecimals"]
-
-    def _get_tick_size(asset_meta: dict) -> Decimal:
-        raw_tick = asset_meta.get("szDecimals")
-        if raw_tick is None:
-            px_decimals = asset_meta.get("pxDecimals")
-            if px_decimals is None:
-                raise ValueError(f"No tick size info for {asset_meta['name']}")
-            raw_tick = Decimal(1).scaleb(-px_decimals)
-        return Decimal(str(raw_tick))
-
-    def _snap_to_tick(
-        price: float, tick: Decimal, bias: str = "nearest"
-    ) -> tuple[Decimal, str | None]:
-        px = Decimal(str(price))
-        remainder = px % tick
-        if remainder == 0:
-            return px, None
-
-        lower = (px // tick) * tick
-        upper = lower + tick
-
-        if bias == "up":
-            return upper, f"Price {px} rounded up to next tick {upper}"
-        if bias == "down":
-            return lower, f"Price {px} rounded down to previous tick {lower}"
-
-        midpoint = lower + tick / 2
-        snapped = upper if px >= midpoint else lower
-        direction = "up" if snapped == upper else "down"
-        return (
-            snapped,
-            f"Price {px} snapped {direction} to tick {snapped} (valid choices: {lower}, {upper})",
-        )
 
     tick_size = _get_tick_size(asset)
 
@@ -227,19 +229,26 @@ def close_position(
     l2 = info.l2_snapshot(coin)
     bid = float(l2["levels"][0][0]["px"])
     ask = float(l2["levels"][1][0]["px"])
-    price = ask * 1.02 if is_buy else bid * 0.98
+    raw_price = ask * 1.02 if is_buy else bid * 0.98
+
+    tick_size = _get_tick_size(asset)
+    validated_price, note = _snap_to_tick(
+        raw_price, tick_size, bias="up" if is_buy else "down"
+    )
+    if note:
+        logger.info(note)
 
     logger.info("-" * 60)
     logger.info("Closing %s position: %s %.6f @ ~$%.2f",
                 coin, "BUY-to-close" if is_buy else "SELL-to-close",
-                validated_size, price)
+                validated_size, validated_price)
 
     try:
         result = exchange.order(
             coin,
             is_buy,
             validated_size,
-            price,
+            float(validated_price.real),
             {"limit": {"tif": "Ioc"}},
             reduce_only=True,
         )

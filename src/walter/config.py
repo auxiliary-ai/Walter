@@ -11,7 +11,7 @@ COIN = "ETH"
 HYPERLIQUID_URL = "https://api.hyperliquid-testnet.xyz/info"
 
 # LLM Configuration
-LLM_MODEL = "openai/gpt-5.4"
+LLM_MODEL = "x-ai/grok-4.20-beta"
 LLM_HISTORY_LENGTH = 5
 
 # CryptoPanic Configuration
