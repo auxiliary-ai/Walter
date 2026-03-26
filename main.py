@@ -14,6 +14,7 @@ from walter.config import (
     LLM_MODEL,
     OPENROUTER_API_KEY,
     SCHEDULER_INTERVAL_SECONDS,
+    TOTAL_SESSION_HOURS,
 )
 from walter.dashboard import TradingDashboard, fmt_money, fmt_num
 from walter.db_utils import (
@@ -59,6 +60,8 @@ llm_api = LLMAPI(
     model=llm_model,
     history_length=history_length,
 )
+total_session_hours = int(TOTAL_SESSION_HOURS)
+total_cycles = (total_session_hours * 3600) // interval
 initialize_database()
 
 web_dashboard_enabled = os.getenv("WALTER_ENABLE_WEB_DASHBOARD", "1") != "0"
@@ -156,7 +159,8 @@ def main() -> None:
                 logger.info("Account data fetched. Requesting LLM decision...")
 
                 decision = llm_api.decide_from_market(
-                    market_snapshot, account_snapshot, major_titles
+                    market_snapshot, account_snapshot, major_titles,
+                    current_cycle=cycle, total_cycles=total_cycles
                 )
                 dashboard.set_state(decision=decision, stage="decision_ready")
                 dashboard.add_event(

@@ -16,27 +16,26 @@ logger = logging.getLogger(__name__)
 # Stable system prompt — sent once per API call as the system role.
 # Keeps instructions out of the user message to reduce per-call token usage.
 SYSTEM_PROMPT = (
-    "You are an elite crypto perpetual-futures trader whose SOLE objective is to "
-    "maximise realised profit over the next {interval} seconds. "
-    "You will be evaluated exclusively on the P&L generated between NOW and the "
-    "next decision cycle — every decision you make must target the highest expected "
-    "profit within that window.\n"
+    "You are an elite crypto perpetual-futures day-trader managing a {total_session_hours}-hour portfolio session. "
+    "We check in with you every {interval_minutes} minutes. "
+    "You are currently at check-in #{current_cycle} out of {total_cycles}. "
+    "Your SOLE objective is to maximize total realised profit by the end of the session.\n"
     "Given market data, account state (including any open position), news headlines, "
     "and recent decision history, decide whether to BUY, SELL, HOLD, or CLOSE.\n"
     "Strategy guidelines:\n"
-    "- BUY when you expect price to rise enough within {interval}s to yield a net "
+    "- BUY when you expect price to rise enough within the next {interval_minutes}m to yield a net "
     "profit after fees. Size your position to maximise expected dollar gain.\n"
-    "- SELL when you expect price to drop within {interval}s. Size accordingly.\n"
+    "- SELL when you expect price to drop within the next {interval_minutes}m. Size accordingly.\n"
     "- CLOSE when you have an open position and want to realise profit (take-profit) "
     "or cut losses (stop-loss). The full position will be closed automatically.\n"
     "- HOLD only when neither direction offers a high-probability profitable trade "
-    "within {interval}s, or when the withdrawable balance is too low and no "
+    "within the next {interval_minutes}m, or when the withdrawable balance is too low and no "
     "position is open to close.\n"
     "Risk rules:\n"
     "- Never propose an order whose required margin (size × price / leverage) "
     "exceeds the withdrawable balance. If balance is too low, respond HOLD or CLOSE.\n"
     "- Use leverage aggressively when conviction is high, conservatively when it "
-    "is low — always aim for the best risk-adjusted return within {interval}s.\n"
+    "is low — always aim for the best risk-adjusted return.\n"
     "- Factor in recent decision history to avoid doubling down on losing streaks "
     "and to compound winning momentum.\n"
     "- Positive news may support BUY; negative news may support SELL, HOLD, or CLOSE.\n"
@@ -45,7 +44,7 @@ SYSTEM_PROMPT = (
     '{{"THINKING":"<1 sentence>","ACTION":"BUY|SELL|HOLD|CLOSE",'
     '"ACTION_DETAILS":{{"size":<float>,"leverage":<int>,"tif":"Ioc"}}}}\n'
     "Omit ACTION_DETAILS when ACTION is HOLD or CLOSE."
-).format(interval=SCHEDULER_INTERVAL_SECONDS)
+)
 
 
 @dataclass(frozen=True)
@@ -261,18 +260,30 @@ class LLMAPI:
         market_snapshot: Any,
         open_positions: Any,
         news_titles: list[str] | None = None,
+        current_cycle: int = 1,
+        total_cycles: int = 1,
     ) -> LLMDecision:
         """Invokes OpenRouter with generated prompt and parses the response."""
         prompt = self.get_prompt(market_snapshot, open_positions, news_titles)
-        response = self._call_openrouter(prompt)
+        response = self._call_openrouter(prompt, current_cycle=current_cycle, total_cycles=total_cycles)
         return self.decide(response, llm_input=prompt)
 
     # ------------------------------------------------------------------
     # OpenRouter HTTP
     # ------------------------------------------------------------------
 
-    def _call_openrouter(self, prompt: str) -> str:
+    def _call_openrouter(self, prompt: str, current_cycle: int = 1, total_cycles: int = 1) -> str:
         """Makes a request to OpenRouter API and returns the response text."""
+        from walter.config import TOTAL_SESSION_HOURS, SCHEDULER_INTERVAL_SECONDS
+        
+        interval_minutes = SCHEDULER_INTERVAL_SECONDS // 60
+        formatted_system_prompt = SYSTEM_PROMPT.format(
+            total_session_hours=TOTAL_SESSION_HOURS,
+            interval_minutes=interval_minutes,
+            current_cycle=current_cycle,
+            total_cycles=total_cycles,
+        )
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -283,7 +294,7 @@ class LLMAPI:
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": formatted_system_prompt},
                 {"role": "user", "content": prompt},
             ],
             "temperature": self.temperature,

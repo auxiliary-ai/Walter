@@ -11,8 +11,9 @@ COIN = "ETH"
 HYPERLIQUID_URL = "https://api.hyperliquid-testnet.xyz/info"
 
 # LLM Configuration
-LLM_MODEL = "x-ai/grok-4.20-beta"
+LLM_MODEL = "deepseek/deepseek-v3.2"
 LLM_HISTORY_LENGTH = 5
+TOTAL_SESSION_HOURS = 6
 
 # CryptoPanic Configuration
 CP_URL = "https://cryptopanic.com/api/developer/v2/posts/"
