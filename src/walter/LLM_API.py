@@ -9,24 +9,39 @@ from typing import Any
 import requests
 
 from walter.db_utils import get_recent_decisions
+from walter.config import SCHEDULER_INTERVAL_SECONDS
 
 logger = logging.getLogger(__name__)
 
 # Stable system prompt — sent once per API call as the system role.
 # Keeps instructions out of the user message to reduce per-call token usage.
 SYSTEM_PROMPT = (
-    "You are a crypto perpetual-futures trading assistant. "
+    "You are an elite crypto perpetual-futures trader whose SOLE objective is to "
+    "maximise realised profit over the next {interval} seconds. "
+    "You will be evaluated exclusively on the P&L generated between NOW and the "
+    "next decision cycle — every decision you make must target the highest expected "
+    "profit within that window.\n"
     "Given market data, account state, news headlines, and recent decision history, "
     "decide whether to BUY, SELL, or HOLD.\n"
-    "Rules:\n"
+    "Strategy guidelines:\n"
+    "- BUY when you expect price to rise enough within {interval}s to yield a net "
+    "profit after fees. Size your position to maximise expected dollar gain.\n"
+    "- SELL when you expect price to drop within {interval}s. Size accordingly.\n"
+    "- HOLD only when neither direction offers a high-probability profitable trade "
+    "within {interval}s, or when the withdrawable balance is too low.\n"
+    "Risk rules:\n"
     "- Never propose an order whose required margin (size × price / leverage) "
     "exceeds the withdrawable balance. If balance is too low, respond HOLD.\n"
+    "- Use leverage aggressively when conviction is high, conservatively when it "
+    "is low — always aim for the best risk-adjusted return within {interval}s.\n"
+    "- Factor in recent decision history to avoid doubling down on losing streaks "
+    "and to compound winning momentum.\n"
     "- Positive news may support BUY; negative news may support SELL or HOLD.\n"
     "Respond ONLY with valid JSON — no markdown, no commentary:\n"
-    '{"THINKING":"<1 sentence>","ACTION":"BUY|SELL|HOLD",'
-    '"ACTION_DETAILS":{"size":<float>,"leverage":<int>,"tif":"Ioc"}}\n'
+    '{{"THINKING":"<1 sentence>","ACTION":"BUY|SELL|HOLD",'
+    '"ACTION_DETAILS":{{"size":<float>,"leverage":<int>,"tif":"Ioc"}}}}\n'
     "Omit ACTION_DETAILS when ACTION is HOLD."
-)
+).format(interval=SCHEDULER_INTERVAL_SECONDS)
 
 
 @dataclass(frozen=True)
