@@ -24,3 +24,6 @@ __pycache__
 walter.db
 walter.db-shm
 walter.db-wal
+
+#Logs
+walter.log

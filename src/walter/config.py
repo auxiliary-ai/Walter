@@ -6,13 +6,14 @@ for dotenv_file in (".env.local", ".env"):
     load_dotenv(dotenv_path=dotenv_file, override=False)
 
 # Configuration Constants
-SCHEDULER_INTERVAL_SECONDS = 4
+SCHEDULER_INTERVAL_SECONDS = 900
 COIN = "ETH"
 HYPERLIQUID_URL = "https://api.hyperliquid-testnet.xyz/info"
 
 # LLM Configuration
-LLM_MODEL = "nvidia/nemotron-3-nano-30b-a3b:free"
+LLM_MODEL = "deepseek/deepseek-v3.2"
 LLM_HISTORY_LENGTH = 5
+TOTAL_SESSION_HOURS = 6
 
 # CryptoPanic Configuration
 CP_URL = "https://cryptopanic.com/api/developer/v2/posts/"
@@ -20,15 +21,15 @@ CP_CURRENCIES = "ETH"
 CP_FILTER = "important"
 CP_KIND = "news"
 
-# CryptoCompare Configuration
-CC_URL = "https://min-api.cryptocompare.com/data/v2/news/"
+# CryptoCompare / CoinDesk Configuration
+CC_URL = "https://data-api.coindesk.com/news/v1/article/list"
 CC_CATEGORIES = "ETH"
-CC_FEEDS = "cointelegraph,coindesk,decrypt"
-CC_SORT = "popular"
+CC_LANG = "EN"
+CC_LIMIT = 10
 
 # News Summarizer Configuration
 SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"
-EPS = 0.3
+EPS = 0.5
 
 # Secrets (read from env)
 API_WALLET_PRIVATE_KEY = os.getenv("API_WALLET_PRIVATE_KEY")
