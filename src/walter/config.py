@@ -28,8 +28,7 @@ CC_LANG = "EN"
 CC_LIMIT = 10
 
 # News Summarizer Configuration
-SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"
-EPS = 0.5
+EPS = 0.85
 
 # Secrets (read from env)
 API_WALLET_PRIVATE_KEY = os.getenv("API_WALLET_PRIVATE_KEY")
