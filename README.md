@@ -16,7 +16,7 @@ Walter is an automated trading assistant that pulls real-time market context fro
 ## Features
 
 - Aggregates Hyperliquid mid prices, candles, volume, funding, open interest, and trade pressure into a concise market snapshot.
-- Fetches crypto news from CryptoPanic and CryptoCompare, then clusters articles into market narratives using sentence-transformer embeddings and DBSCAN.
+- Fetches crypto news from CryptoPanic and CryptoCompare, then clusters articles into market narratives using TF-IDF vectors and DBSCAN.
 - Feeds market data, account state, news summaries, and recent decision history to a LLM that returns a structured JSON decision (action, size, leverage, TIF).
 - Places market or limit orders through the official Hyperliquid SDK with automatic tick-size snapping and leverage updates.
 - Persists market snapshots, account snapshots, news summaries, and order attempts to a local SQLite database for auditability and review.
@@ -73,7 +73,6 @@ Walter reads configuration from two places:
 | `HYPERLIQUID_URL`            | `https://api.hyperliquid-testnet.xyz/info`       | Base URL for the Hyperliquid info endpoint.     |
 | `LLM_MODEL`                  | `openai/gpt-oss-20b:free`                       | OpenRouter model (short name or full ID).       |
 | `LLM_HISTORY_LENGTH`         | `5`                                              | Number of recent decisions fed back to the LLM. |
-| `SENTENCE_TRANSFORMER_MODEL` | `all-MiniLM-L6-v2`                              | Model used for news embedding and clustering.   |
 | `EPS`                        | `0.3`                                            | DBSCAN epsilon for narrative clustering.         |
 
 Order size, leverage, and time-in-force are no longer configured statically — they are determined by the LLM on each decision cycle.
@@ -108,5 +107,5 @@ WALTER_WEB_HOST=127.0.0.1 WALTER_WEB_PORT=9000 python main.py
   - `LLM_API.py` — OpenRouter prompt construction, API call, and response parsing.
   - `hyperliquid_API.py` — position queries and order placement.
   - `news_API_aggregator.py` — CryptoPanic and CryptoCompare news fetching.
-  - `news_summerizer.py` — sentence-transformer embedding + DBSCAN narrative clustering.
+  - `news_summerizer.py` — TF-IDF vectorization + DBSCAN narrative clustering.
   - `db_utils.py` — SQLite schema initialisation and data persistence.

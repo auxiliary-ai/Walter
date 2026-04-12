@@ -6,7 +6,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
-
+from walter.config import DASHBOARD_REFRESH_RATE
 logger = logging.getLogger(__name__)
 
 
@@ -801,7 +801,7 @@ _HTML = """<!doctype html>
 
     bindInteractions();
     refresh();
-    setInterval(refresh, 750);
+    setInterval(refresh, __DASHBOARD_REFRESH_RATE__ * 1000);
   </script>
 </body>
 </html>
@@ -867,7 +867,9 @@ class WebDashboardServer:
                     self._write_bytes(
                         200,
                         "text/html; charset=utf-8",
-                        _HTML.encode("utf-8"),
+                        _HTML.replace(
+                            "__DASHBOARD_REFRESH_RATE__", str(DASHBOARD_REFRESH_RATE)
+                        ).encode("utf-8"),
                         cache="no-cache",
                     )
                     return

@@ -1,17 +1,16 @@
 import logging
 import re
-import numpy as np
-from collections import defaultdict
-from sentence_transformers import SentenceTransformer
-from sklearn.cluster import DBSCAN
-from sklearn.metrics.pairwise import cosine_similarity
 import html
-from walter.config import SENTENCE_TRANSFORMER_MODEL, EPS
+from collections import defaultdict
+
+import numpy as np
+from sklearn.cluster import DBSCAN
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+from walter.config import EPS
 
 logger = logging.getLogger(__name__)
-
-# Load the model once at module level to avoid reloading on every call
-_sentence_model = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL)
 
 
 def get_summaries_from_news(all_news: list[dict]) -> dict:
@@ -28,10 +27,22 @@ def get_summaries_from_news(all_news: list[dict]) -> dict:
                 text = text.replace(word, "")
             cleaned_texts.append(re.sub(r"\s+", " ", text).strip())
 
-        # Embed & cluster (high EPS = broad narratives)
-        embeddings = _sentence_model.encode(cleaned_texts, normalize_embeddings=True)
+        if not cleaned_texts:
+            return {
+                "major_narratives": [],
+                "secondary_signals": [],
+            }
 
-        # eps is the "Narrative Threshold" — it groups by general topic
+        # Build TF-IDF vectors and cluster them by cosine distance.
+        vectorizer = TfidfVectorizer(
+            lowercase=False,
+            ngram_range=(1, 2),
+            min_df=1,
+            max_features=5000,
+        )
+        embeddings = vectorizer.fit_transform(cleaned_texts).toarray()
+
+        # eps is the "Narrative Threshold"; it groups by general topic.
         clustering = DBSCAN(eps=EPS, min_samples=2, metric="cosine")
         labels = clustering.fit_predict(embeddings)
 

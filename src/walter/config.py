@@ -28,8 +28,7 @@ CC_LANG = "EN"
 CC_LIMIT = 10
 
 # News Summarizer Configuration
-SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"
-EPS = 0.5
+EPS = 0.85
 
 # Secrets (read from env)
 API_WALLET_PRIVATE_KEY = os.getenv("API_WALLET_PRIVATE_KEY")
@@ -42,3 +41,6 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 CP_CRYPTOPANIC_KEY = os.getenv("CP_CRYPTOPANIC_KEY")
 CC_CRYPTOCOMPARE_KEY = os.getenv("CC_CRYPTOCOMPARE_KEY")
+
+#Dashbord refresh rate in seconds
+DASHBOARD_REFRESH_RATE = 180
