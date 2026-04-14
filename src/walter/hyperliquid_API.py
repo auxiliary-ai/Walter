@@ -121,14 +121,9 @@ def place_order(
             bias="up" if is_buy else "down",
         )
         order_params = {"limit": {"tif": tif or "Ioc"}}
-        order_params = {"limit": {"tif": tif or "Ioc"}}
     else:
         raw_price = limit_price if limit_price is not None else mid
         validated_price, note = _snap_to_tick(raw_price, tick_size)
-        order_params = {"limit": {"tif": tif or "Gtc"}}
-
-    if note:
-        logger.info(note)
         order_params = {"limit": {"tif": tif or "Gtc"}}
 
     if note:
@@ -146,7 +141,6 @@ def place_order(
     )
 
     try:
-        exchange.update_leverage(leverage, coin)
         exchange.update_leverage(leverage, coin)
         result = exchange.order(
             coin,
