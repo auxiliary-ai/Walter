@@ -59,14 +59,21 @@ llm_api = LLMAPI(
     api_key=OPENROUTER_API_KEY,
     model=LLM_MODEL,
     history_length=int(LLM_HISTORY_LENGTH),
+    api_key=OPENROUTER_API_KEY,
+    model=LLM_MODEL,
+    history_length=int(LLM_HISTORY_LENGTH),
 )
 initialize_database()
 
 WEB_DASHBOARD_ENABLED = os.getenv("WALTER_ENABLE_WEB_DASHBOARD", "1") != "0"
 WEB_DASHBOARD_HOST = os.getenv("WALTER_WEB_HOST", "127.0.0.1")
+WEB_DASHBOARD_ENABLED = os.getenv("WALTER_ENABLE_WEB_DASHBOARD", "1") != "0"
+WEB_DASHBOARD_HOST = os.getenv("WALTER_WEB_HOST", "127.0.0.1")
 try:
     WEB_DASHBOARD_PORT = int(os.getenv("WALTER_WEB_PORT", "8765"))
+    WEB_DASHBOARD_PORT = int(os.getenv("WALTER_WEB_PORT", "8765"))
 except ValueError:
+    WEB_DASHBOARD_PORT = 8765
     WEB_DASHBOARD_PORT = 8765
 
 
@@ -88,6 +95,7 @@ def _persist_cycle(
     save_order_attempt(
         created_at=current_time,
         coin=COIN_TICKER,
+        coin=COIN_TICKER,
         is_buy=order_args["is_buy"] if order_args else False,
         size=order_args["size"] if order_args else None,
         leverage=order_args["leverage"] if order_args else None,
@@ -104,10 +112,14 @@ def _persist_cycle(
 
 def main() -> None:
     logger.info("Scheduler running every %d seconds.", INTERVAL)
+    logger.info("Scheduler running every %d seconds.", INTERVAL)
     web_dashboard: WebDashboardServer | None = None
+    if WEB_DASHBOARD_ENABLED:
     if WEB_DASHBOARD_ENABLED:
         try:
             web_dashboard = WebDashboardServer(
+                host=WEB_DASHBOARD_HOST,
+                port=WEB_DASHBOARD_PORT,
                 host=WEB_DASHBOARD_HOST,
                 port=WEB_DASHBOARD_PORT,
             )
@@ -117,6 +129,8 @@ def main() -> None:
             logger.warning("Web dashboard disabled (bind failed): %s", exc)
             web_dashboard = None
 
+    dashboard = TradingDashboard(COIN_TICKER, web_dashboard=web_dashboard)
+    dashboard.add_event(f"Scheduler started (interval={INTERVAL}s)")
     dashboard = TradingDashboard(COIN_TICKER, web_dashboard=web_dashboard)
     dashboard.add_event(f"Scheduler started (interval={INTERVAL}s)")
     if web_dashboard is not None:
@@ -252,6 +266,7 @@ def main() -> None:
 
                 order_args = {
                     "is_buy": decision.action == "buy",
+                    "coin": COIN_TICKER,
                     "coin": COIN_TICKER,
                     "size": decision.size,
                     "leverage": decision.leverage,

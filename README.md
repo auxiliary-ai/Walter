@@ -1,4 +1,4 @@
-# Walter
+# Walter 🤖
 
 <p align="center">
   <img src="walter_logo.svg" alt="Walter logo" width="220">
