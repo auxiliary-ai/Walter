@@ -41,27 +41,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-interval = int(SCHEDULER_INTERVAL_SECONDS)
-coin = str(COIN)
-hyperliquid_url = str(HYPERLIQUID_URL)
-general_public_key = str(GENERAL_PUBLIC_KEY)
-api_wallet_private_key = str(API_WALLET_PRIVATE_KEY)
-llm_model = LLM_MODEL
-openrouter_key = OPENROUTER_API_KEY
-history_length = int(LLM_HISTORY_LENGTH)
+# --- Configuration & Setup ---
+INTERVAL = int(SCHEDULER_INTERVAL_SECONDS)
+COIN_TICKER = str(COIN)
+HL_URL = str(HYPERLIQUID_URL)
+GEN_PUB_KEY = str(GENERAL_PUBLIC_KEY)
+API_PRIV_KEY = str(API_WALLET_PRIVATE_KEY)
+
 llm_api = LLMAPI(
-    api_key=openrouter_key,
-    model=llm_model,
-    history_length=history_length,
+    api_key=OPENROUTER_API_KEY,
+    model=LLM_MODEL,
+    history_length=int(LLM_HISTORY_LENGTH),
 )
 initialize_database()
 
-web_dashboard_enabled = os.getenv("WALTER_ENABLE_WEB_DASHBOARD", "1") != "0"
-web_dashboard_host = os.getenv("WALTER_WEB_HOST", "127.0.0.1")
+WEB_DASHBOARD_ENABLED = os.getenv("WALTER_ENABLE_WEB_DASHBOARD", "1") != "0"
+WEB_DASHBOARD_HOST = os.getenv("WALTER_WEB_HOST", "127.0.0.1")
 try:
-    web_dashboard_port = int(os.getenv("WALTER_WEB_PORT", "8765"))
+    WEB_DASHBOARD_PORT = int(os.getenv("WALTER_WEB_PORT", "8765"))
 except ValueError:
-    web_dashboard_port = 8765
+    WEB_DASHBOARD_PORT = 8765
 
 
 def _persist_cycle(
@@ -81,7 +80,7 @@ def _persist_cycle(
     news_snapshot_id = save_news_snapshot(major_titles, captured_at=current_time)
     save_order_attempt(
         created_at=current_time,
-        coin=coin,
+        coin=COIN_TICKER,
         is_buy=order_args["is_buy"] if order_args else False,
         size=order_args["size"] if order_args else None,
         leverage=order_args["leverage"] if order_args else None,
@@ -97,13 +96,13 @@ def _persist_cycle(
 
 
 def main() -> None:
-    logger.info("Scheduler running every %d seconds.", interval)
+    logger.info("Scheduler running every %d seconds.", INTERVAL)
     web_dashboard: WebDashboardServer | None = None
-    if web_dashboard_enabled:
+    if WEB_DASHBOARD_ENABLED:
         try:
             web_dashboard = WebDashboardServer(
-                host=web_dashboard_host,
-                port=web_dashboard_port,
+                host=WEB_DASHBOARD_HOST,
+                port=WEB_DASHBOARD_PORT,
             )
             web_dashboard.start()
             logger.info("Web dashboard available at %s", web_dashboard.url)
@@ -111,8 +110,8 @@ def main() -> None:
             logger.warning("Web dashboard disabled (bind failed): %s", exc)
             web_dashboard = None
 
-    dashboard = TradingDashboard(coin, web_dashboard=web_dashboard)
-    dashboard.add_event(f"Scheduler started (interval={interval}s)")
+    dashboard = TradingDashboard(COIN_TICKER, web_dashboard=web_dashboard)
+    dashboard.add_event(f"Scheduler started (interval={INTERVAL}s)")
     if web_dashboard is not None:
         dashboard.add_event(f"Web dashboard: {web_dashboard.url}")
     dashboard.set_state(stage="initializing")
@@ -139,12 +138,12 @@ def main() -> None:
                 dashboard.add_event(f"News processed ({len(major_titles)} major narratives)")
                 dashboard.render()
 
-                market_snapshot = get_market_snapshot(coin, "1h", hyperliquid_url, 6)
+                market_snapshot = get_market_snapshot(COIN_TICKER, "1h", HL_URL, 6)
                 dashboard.set_state(market_snapshot=market_snapshot, stage="collecting_account")
                 dashboard.render()
 
                 account_snapshot = get_open_position_details(
-                    hyperliquid_url, general_public_key
+                    HL_URL, GEN_PUB_KEY
                 )
                 dashboard.set_state(account_snapshot=account_snapshot, stage="llm_decision")
                 dashboard.render()
@@ -175,12 +174,12 @@ def main() -> None:
                     )
                     dashboard.add_event("HOLD: no order placed", current_time)
                     dashboard.render()
-                    time.sleep(interval)
+                    time.sleep(INTERVAL)
                     continue
 
                 order_args = {
                     "is_buy": decision.action == "buy",
-                    "coin": coin,
+                    "coin": COIN_TICKER,
                     "size": decision.size,
                     "leverage": decision.leverage,
                     "tif": decision.tif or "Ioc",
@@ -213,7 +212,7 @@ def main() -> None:
                         decision_action_override=f"{decision.action}_invalid_payload",
                     )
                     dashboard.render()
-                    time.sleep(interval)
+                    time.sleep(INTERVAL)
                     continue
 
                 available = get_withdrawable_balance(account_snapshot)
@@ -257,16 +256,16 @@ def main() -> None:
                         current_time,
                     )
                     dashboard.render()
-                    time.sleep(interval)
+                    time.sleep(INTERVAL)
                     continue
 
                 dashboard.set_state(stage="placing_order", order_status="submitting_order")
                 dashboard.render()
                 order_placed = place_order(
-                    hyperliquid_url,
-                    api_wallet_private_key,
+                    HL_URL,
+                    API_PRIV_KEY,
                     decision.action == "buy",
-                    coin,
+                    COIN_TICKER,
                     decision.size,
                     decision.leverage,
                     decision.tif,
@@ -288,7 +287,7 @@ def main() -> None:
                     dashboard.add_event(
                         (
                             f"Order placed: {decision.action.upper()} "
-                            f"{fmt_num(decision.size, 5)} {coin} @ lev {decision.leverage}"
+                            f"{fmt_num(decision.size, 5)} {COIN_TICKER} @ lev {decision.leverage}"
                         ),
                         current_time,
                     )
@@ -299,14 +298,14 @@ def main() -> None:
                     )
                     dashboard.add_event("Order placement failed", current_time)
                 dashboard.render()
-                time.sleep(interval)
+                time.sleep(INTERVAL)
             except Exception as e:
                 logger.error("Loop error: %s", e, exc_info=True)
                 dashboard.add_event(f"Loop error: {e}")
                 dashboard.set_state(stage="error_state", order_status="error")
                 dashboard.render()
-                logger.info("Retrying in %d seconds", interval)
-                time.sleep(interval)
+                logger.info("Retrying in %d seconds", INTERVAL)
+                time.sleep(INTERVAL)
     except KeyboardInterrupt:
         dashboard.add_event("Scheduler stopped by user")
         dashboard.set_state(stage="stopped", order_status="stopped")

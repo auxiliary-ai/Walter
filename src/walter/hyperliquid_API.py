@@ -44,26 +44,18 @@ def place_order(
     size: float,
     leverage: int,
     tif: str,
+    order_type: str = "market",
+    limit_price: float | None = None,
 ) -> bool:
-    """Place a market order on Hyperliquid."""
-    # =============================================================================
-    # CONFIGURATION
-    # =============================================================================
-    ORDER_TYPE = "market"  # "market" or "limit"
-    PRICE = 1146  # Used only for limit orders
-
-    # =============================================================================
+    """Place a market or limit order on Hyperliquid."""
     # Setup
-    # =============================================================================
     account = Account.from_key(api_wallet_private_key)
     base_url = base_url.removesuffix("/info")
 
     info = Info(base_url, skip_ws=True)
     exchange = Exchange(account, base_url)
 
-    # =============================================================================
     # Get asset metadata
-    # =============================================================================
     meta = info.meta()
     asset = next((a for a in meta["universe"] if a["name"] == coin), None)
     if not asset:
@@ -113,60 +105,45 @@ def place_order(
     mid = (bid + ask) / 2
 
     logger.info("=" * 60)
-    logger.info("Asset: %s", coin)
-    logger.info("Bid: $%,.2f, Ask: $%,.2f, Mid: $%,.2f", bid, ask, mid)
+    logger.info("Asset: %s | Bid: $%,.2f | Ask: $%,.2f | Mid: $%,.2f", coin, bid, ask, mid)
 
-    # =============================================================================
-    # Validate size
-    # =============================================================================
+    # Determine execution price and parameters
     validated_size = round(size, size_decimals)
-
-    # =============================================================================
-    # Determine price
-    # =============================================================================
-    if ORDER_TYPE == "market":
+    
+    if order_type == "market":
+        # For market orders, use an aggressive price to ensure execution
         raw_price = ask * 1.02 if is_buy else bid * 0.98
         validated_price, note = _snap_to_tick(
             raw_price, tick_size, bias="up" if is_buy else "down"
         )
-        if note:
-            logger.info(note)
-        order_type_payload = {"market": {}}
+        order_params = {"limit": {"tif": tif or "Ioc"}}
     else:
-        raw_price = PRICE
+        # For limit orders, use the provided limit_price or fall back to mid
+        raw_price = limit_price if limit_price is not None else mid
         validated_price, note = _snap_to_tick(raw_price, tick_size)
-        if note:
-            logger.info("Limit price adjustment needed -> %s", note)
-        order_type_payload = {"limit": {"tif": "Gtc"}}
+        order_params = {"limit": {"tif": tif or "Gtc"}}
 
-    # =============================================================================
+    if note:
+        logger.info(note)
+
     # Display final order details
-    # =============================================================================
     logger.info("-" * 60)
-    logger.info("Final Order Details:")
-    logger.info("  Coin:      %s", coin)
-    logger.info("  Type:      %s", ORDER_TYPE.upper())
-    logger.info("  Direction: %s", "BUY" if is_buy else "SELL")
-    logger.info("  Size:      %s %s", validated_size, coin)
-    logger.info("  Price:     $%,.2f", validated_price)
-    logger.info("  Total:     $%,.2f", validated_size * float(validated_price.real))
+    logger.info("Final %s Order: %s %s %s @ $%,.2f (%s)", 
+                order_type.upper(), "BUY" if is_buy else "SELL", 
+                validated_size, coin, validated_price, order_params["limit"]["tif"])
 
-    # =============================================================================
     # Place order
-    # =============================================================================
     try:
-        lev = exchange.update_leverage(leverage, coin)
+        exchange.update_leverage(leverage, coin)
         result = exchange.order(
             coin,
             is_buy,
             validated_size,
             float(validated_price.real),
-            {"limit": {"tif": tif}},
+            order_params,
             reduce_only=False,
         )
-        logger.info("Leverage update: %s", lev)
-        logger.info("✅ Order placed successfully!")
-        logger.info("Result: %s", result)
+        logger.info("✅ Order placed successfully! Result: %s", result)
         return True
     except Exception as e:
         logger.error("❌ Error placing order: %s", e)
